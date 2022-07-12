@@ -1,0 +1,123 @@
+---
+title: "Phosphoproteomics GSEA Analysis"
+output:
+  html_document:
+    df_print: kable
+---
+
+## Setup
+
+```{r message = FALSE}
+library(tidyverse)
+library(msigdbr)
+library(clusterProfiler)
+library(enrichplot)
+library(ggnewscale)
+```
+
+```{r load_gene_sets}
+# load gene MSIGdb gene sets
+gene_sets <- bind_rows(
+  msigdbr(category = "H"),
+  msigdbr(category = "C1"),
+  msigdbr(category = "C2", subcategory = "CP:KEGG"),
+)
+
+gene_sets <- gene_sets %>%
+  select(gs_name, gene_symbol) %>%
+  distinct()
+```
+
+```{r load_data, message=FALSE}
+phospho <- read_csv('data/phosphoproteomics.csv', show_col_types = FALSE)[, -1]
+phospho$symbol <- str_split(phospho$Phosphorylation_Site, " ", simplify=TRUE)[, 1]
+
+# drop single gene with missing m7 vs. control p-value
+phospho <- phospho[complete.cases(phospho), ]
+
+dim(phospho)
+```
+
+```{r}
+head(phospho)
+```
+
+```{r create_gene_lists}
+# construct gene score vectors for GSEA analysis;
+# in cases where multiple phospho sites or proteins map to the same gene, keep the
+# ratio with the largest absolute deviance from "0"
+mtorc1_genes <- phospho %>%
+  select(symbol, ratio=Ratio_Rap_v_Control) %>% 
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
+  deframe()
+
+mtorc2_genes <- phospho %>%
+  select(symbol, ratio=Ratio_Ric_v_Control) %>% 
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
+  deframe()
+
+mtorc3_genes <- phospho %>%
+  select(symbol, ratio=Ratio_m7_v_Control) %>% 
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
+  deframe()
+```
+
+```{r}
+head(enframe(mtorc1_genes))
+head(enframe(mtorc2_genes))
+head(enframe(mtorc3_genes))
+```
+
+```{r fgsea, message = FALSE, warning = FALSE}
+mtorc1_res <- GSEA(mtorc1_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15)
+mtorc2_res <- GSEA(mtorc2_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15)
+mtorc3_res <- GSEA(mtorc3_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15)
+```
+
+```{r mtorc1_results}
+mtorc1_res@result
+
+emapplot(pairwise_termsim(mtorc1_res))
+dotplot(mtorc1_res)
+```
+
+```{r mtorc2_results}
+mtorc2_res@result
+
+emapplot(pairwise_termsim(mtorc2_res))
+dotplot(mtorc2_res)
+```
+
+```{r mtorc3_results}
+mtorc3_res@result
+
+emapplot(pairwise_termsim(mtorc3_res))
+dotplot(mtorc3_res)
+```
+
+## Session Info
+
+```{r}
+sessionInfo()
+```
