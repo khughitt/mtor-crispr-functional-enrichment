@@ -1,0 +1,7 @@
+r-rmarkdown
+r-tidyverse
+bioconductor-msigdbr
+bioconductor-clusterprofiler
+bioconductor-enrichplot
+r-ggnewscale
+

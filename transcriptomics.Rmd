@@ -1,0 +1,128 @@
+---
+title: "CRISPR-guided multiomics unveils direct mTOR inhibition of Hippo signaling through CDCP1: Transcriptomics GSEA Analysis"
+output:
+  html_document:
+    df_print: kable
+  pdf_document:
+    df_print: kable
+---
+
+## Setup
+
+```{r message = FALSE}
+library(tidyverse)
+library(msigdbr)
+library(clusterProfiler)
+library(enrichplot)
+library(ggnewscale)
+
+# plot opts
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.height = 3.6,
+  fig.retina = 1,
+  dpi = 192
+)
+```
+
+```{r load_gene_sets}
+# load gene MSIGdb gene sets
+gene_sets <- bind_rows(
+  msigdbr(category = "H"),
+  msigdbr(category = "C1"),
+  msigdbr(category = "C2", subcategory = "CP:KEGG"),
+)
+
+gene_sets <- gene_sets %>%
+  select(gs_name, ensembl_gene) %>%
+  distinct()
+```
+
+```{r load_data, message=FALSE}
+mtorc1_deseq <- read_tsv("data/rnaseq_vehicle_vs_rap.tsv", show_col_types = FALSE)
+mtorc2_deseq <- read_tsv("data/rnaseq_vehicle_vs_ric.tsv", show_col_types = FALSE)
+mtorc3_deseq <- read_tsv("data/rnaseq_vehicle_vs_m7.tsv", show_col_types = FALSE)
+
+dim(mtorc1_deseq)
+dim(mtorc2_deseq)
+dim(mtorc3_deseq)
+```
+
+```{r}
+# preview data
+mtorc1_deseq[1:5, 1:5]
+mtorc2_deseq[1:5, 1:5]
+mtorc3_deseq[1:5, 1:5]
+```
+
+```{r create_gene_lists}
+# construct gene score vectors for GSEA analysis;
+mtorc1_genes <- mtorc1_deseq %>%
+  select(ensgene, log2FoldChange) %>%
+  arrange(-log2FoldChange) %>%
+  deframe()
+
+mtorc2_genes <- mtorc2_deseq %>%
+  select(ensgene, log2FoldChange) %>%
+  arrange(-log2FoldChange) %>%
+  deframe()
+
+mtorc3_genes <- mtorc3_deseq %>%
+  select(ensgene, log2FoldChange) %>%
+  arrange(-log2FoldChange) %>%
+  deframe()
+```
+
+```{r}
+head(enframe(mtorc1_genes))
+head(enframe(mtorc2_genes))
+head(enframe(mtorc3_genes))
+```
+
+```{r fgsea, message = FALSE, warning = FALSE}
+MIN_PADJ <- 0.05
+
+mtorc1_res <- GSEA(mtorc1_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ)
+mtorc2_res <- GSEA(mtorc2_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ)
+mtorc3_res <- GSEA(mtorc3_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ)
+```
+
+```{r mtorc1_results}
+mtorc1_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
+
+dotplot(mtorc1_res) +
+  ggplot2::xlim(0, 0.8)
+```
+
+```{r mtorc2_results}
+mtorc2_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
+
+dotplot(mtorc2_res) +
+  ggplot2::xlim(0, 0.8)
+```
+
+```{r mtorc3_results}
+mtorc3_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
+
+dotplot(mtorc3_res) +
+  ggplot2::xlim(0, 0.8)
+```
+
+```{r save_results}
+if (!dir.exists("output")) {
+  dir.create("output", mode = "0755")
+}
+
+write_tsv(mtorc1_res@result, file.path("output", "transcriptomics-gsea-results-mtorc1.tsv"))
+write_tsv(mtorc2_res@result, file.path("output", "transcriptomics-gsea-results-mtorc2.tsv"))
+write_tsv(mtorc3_res@result, file.path("output", "transcriptomics-gsea-results-mtorc3.tsv"))
+```
+
+## Session Info
+
+```{r}
+sessionInfo()
+```

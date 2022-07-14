@@ -1,7 +1,9 @@
 ---
-title: "Phosphoproteomics GSEA Analysis"
+title: "CRISPR-guided multiomics unveils direct mTOR inhibition of Hippo signaling through CDCP1: Phosphoproteomics GSEA Analysis"
 output:
   html_document:
+    df_print: kable
+  pdf_document:
     df_print: kable
 ---
 
@@ -13,6 +15,14 @@ library(msigdbr)
 library(clusterProfiler)
 library(enrichplot)
 library(ggnewscale)
+
+# plot opts
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.height = 3.6,
+  fig.retina = 1,
+  dpi = 192
+)
 ```
 
 ```{r load_gene_sets}
@@ -39,7 +49,8 @@ dim(phospho)
 ```
 
 ```{r}
-head(phospho)
+# preview data
+phospho[1:5, 1:5]
 ```
 
 ```{r create_gene_lists}
@@ -47,7 +58,7 @@ head(phospho)
 # in cases where multiple phospho sites or proteins map to the same gene, keep the
 # ratio with the largest absolute deviance from "0"
 mtorc1_genes <- phospho %>%
-  select(symbol, ratio=Ratio_Rap_v_Control) %>% 
+  select(symbol, ratio = Ratio_Rap_v_Control) %>% 
   mutate(log2ratio = log2(ratio)) %>%
   mutate(log2ratio_abs = abs(log2ratio)) %>%
   group_by(symbol) %>%
@@ -59,7 +70,7 @@ mtorc1_genes <- phospho %>%
   deframe()
 
 mtorc2_genes <- phospho %>%
-  select(symbol, ratio=Ratio_Ric_v_Control) %>% 
+  select(symbol, ratio = Ratio_Ric_v_Control) %>% 
   mutate(log2ratio = log2(ratio)) %>%
   mutate(log2ratio_abs = abs(log2ratio)) %>%
   group_by(symbol) %>%
@@ -71,7 +82,7 @@ mtorc2_genes <- phospho %>%
   deframe()
 
 mtorc3_genes <- phospho %>%
-  select(symbol, ratio=Ratio_m7_v_Control) %>% 
+  select(symbol, ratio = Ratio_m7_v_Control) %>% 
   mutate(log2ratio = log2(ratio)) %>%
   mutate(log2ratio_abs = abs(log2ratio)) %>%
   group_by(symbol) %>%
@@ -96,24 +107,37 @@ mtorc3_res <- GSEA(mtorc3_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff
 ```
 
 ```{r mtorc1_results}
-mtorc1_res@result
+mtorc1_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-emapplot(pairwise_termsim(mtorc1_res))
-dotplot(mtorc1_res)
+dotplot(mtorc1_res) + 
+  ggplot2::xlim(0, 1.1)
 ```
 
 ```{r mtorc2_results}
-mtorc2_res@result
+mtorc2_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-emapplot(pairwise_termsim(mtorc2_res))
-dotplot(mtorc2_res)
+dotplot(mtorc2_res) +
+  ggplot2::xlim(0, 1.1)
 ```
 
 ```{r mtorc3_results}
-mtorc3_res@result
+mtorc3_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-emapplot(pairwise_termsim(mtorc3_res))
-dotplot(mtorc3_res)
+dotplot(mtorc3_res) +
+  ggplot2::xlim(0, 1.1)
+```
+
+```{r save_results}
+if (!dir.exists("output")) {
+  dir.create("output", mode = "0755")
+}
+
+write_tsv(mtorc1_res@result, file.path("output", "phosphoproteomics-gsea-results-mtorc1.tsv"))
+write_tsv(mtorc2_res@result, file.path("output", "phosphoproteomics-gsea-results-mtorc2.tsv"))
+write_tsv(mtorc3_res@result, file.path("output", "phosphoproteomics-gsea-results-mtorc3.tsv"))
 ```
 
 ## Session Info
