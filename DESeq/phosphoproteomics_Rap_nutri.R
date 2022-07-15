@@ -3,22 +3,18 @@ setwd("~/Desktop/Desktop Files/Phosphoproteomics")
 mtor_raw_counts <- read.csv('final_phosphoproteomics_caltech_nutri.csv' , row.names = 1)
 head(mtor_raw_counts)
 str(mtor_raw_counts)
-#mtor_raw_counts$symbol <- str_extract(mtor_raw_counts$Phospho_Site, "[^ ]+")
-#mtor_raw_counts <- mtor_raw_counts %>% relocate(symbol, .before = Phospho_Site)
-#mtor_raw_counts <- mtor_raw_counts %>% relocate(Phospho_Site, .after = Uniprot_ID)
+
+#extract gene symbol from phospho site column
+mtor_raw_counts$symbol <- str_extract(mtor_raw_counts$Phospho_Site, "[^ ]+")
+mtor_raw_counts <- mtor_raw_counts %>% relocate(symbol, .before = Phospho_Site)
+mtor_raw_counts <- mtor_raw_counts %>% relocate(Phospho_Site, .after = Uniprot_ID)
 
 mtor_raw_counts <- dplyr::select(mtor_raw_counts, Phospho_Site, control_nutri_1, control_nutri_2, control_nutri_3, Rap_nutri_1, Rap_nutri_2, Rap_nutri_3, Rap_nutri_4)
 row.names(mtor_raw_counts) <- mtor_raw_counts$Phospho_Site
 mtor_raw_counts$Phospho_Site <- NULL #erase column but leave the row names
 #write.csv(mtor_raw_counts, row.names = TRUE, "final_phosphoproteomics_caltech_nutri_phospho_names_included.csv")
 
-#mtor_raw_counts <- read.csv('final_phosphoproteomics_caltech_nutri_phospho_names_included.csv', header = T, row.names = 1)
-#full_nutri_global_protein <- read_excel('Nutrient group global 2020_0214ProteomeFractionatedFullProteinList.xlsx')
-#full_nutri_global_protein <- as.data.frame(full_nutri_global_protein)
-#intersection <- intersect(full_nutri_global_protein$`Gene Symbol`, mtor_raw_counts$symbol) #find the intersection of the global proteomics list and the phosphoproteomics list
-
 # TAILOR RAW COUNTS
-
 library(tibble)  # for `rownames_to_column` and `column_to_rownames`
 #mtor_raw_counts<- as.matrix(as.data.frame(mtor_raw_counts))
 Rap_nutri <- dplyr::select(mtor_raw_counts, control_nutri_1, control_nutri_2, control_nutri_3, Rap_nutri_1, Rap_nutri_2, Rap_nutri_3, Rap_nutri_4)
@@ -77,7 +73,6 @@ dds_Rapnutri <- DESeqDataSetFromMatrix(countData = round(Rap_nutri),
 
 
 # NORMALIZED COUNTS
-
 #calculate normalized counts using size factors
 dds_Rapnutri <- estimateSizeFactors(dds_Rapnutri)
 sizeFactors(dds_Rapnutri)
@@ -143,7 +138,6 @@ Rapnutri_res <- results(dds_Rapnutri, contrast=contrast1, alpha = 0.05)
 
 
 # SHRINK LOG2FC
-
 #shrink log2 fold changes
 Rapnutri_res <- lfcShrink(dds_Rapnutri, contrast=contrast1, type="ashr", res=Rapnutri_res)
 #plot MA plot again 
@@ -151,13 +145,14 @@ Rapnutri_res <- lfcShrink(dds_Rapnutri, contrast=contrast1, type="ashr", res=Rap
 
 #descriptions for columns in results table
 #mcols(Rapnutri_res)
+
 #view the first few rows of the results table
 #head(Rapnutri_res)
+
 #preview DEGs and genes filtered
 summary(Rapnutri_res)
 
 # SIGNIFICANT GENES
-
 #test for significant genes
 Rapnutri_res <- results(dds_Rapnutri, alpha = 0.05, contrast=contrast1, lfcThreshold = 0) ####### could just leave the default value. 
 #reshrink fold changes with modified results
@@ -167,10 +162,7 @@ Rapnutri_res <- lfcShrink(dds_Rapnutri, contrast=contrast1, type="ashr", res=Rap
 summary(Rapnutri_res)
 
 
-
-
 # ANNOTABLES FOR GENE SPECIFICATIONS             
-
 #to better understand which genes the results pertain to, use annotables
 #install.packages("devtools")
 #devtools::install_github("stephenturner/annotables")
@@ -566,20 +558,6 @@ mtorc1_tx_merged_mtor_genes_all_3 <- left_join(x = mtorc1_tx_merged_mtor_genes_a
 mtorc1_tx_merged_HIPPO_genes_all_3 <- left_join(x = mtorc1_tx_merged_HIPPO_genes_all_2, y = Rapnutri_res_all, by = "symbol")
 
 
-# keyvals <- ifelse(
-#   Rapnutri_res_all$symbol %in% mtorc1_tx_merged_mtor_genes_2$symbol, 'purple',
-#   ifelse(abs(Rapnutri_res_all$log2FoldChange) >= 2 & Rapnutri_res_all$padj <= 0.05, 'grey',
-#          'black')
-
-# keyvals[is.na(keyvals)] <- 'black'
-# names(keyvals)[keyvals == 'purple'] <- 'mTOR_gene'
-# names(keyvals)[keyvals == 'grey'] <- 'sig_gene'
-# names(keyvals)[keyvals == 'black'] <- 'gene'
-
-#sort the genes that I want to label
-#colnames(keyvals) <- c("gene_type, ")
-#keyvals_sorted <- Rapnutri_res_all[order(unlist(keyvals), decreasing = TRUE),] #sort by the type of gene
-
 ## mTOR ranked gene list
 EnhancedVolcano(Rapnutri_res_all,
                 lab = Rapnutri_res_all$symbol,
@@ -852,93 +830,103 @@ EnhancedVolcano(Rapnutri_res_all,
 ggsave("Phospho_Rapnutri_Volcnolab_FCcutoff_2_p_val_0.05_HIPPO_genes.png", width=7, height=7, dpi=300)
 
 
-#############################################################################################
 
+
+
+
+
+
+
+
+
+
+#############################################################################################
+#EXTRA NOTES
 #write.table(Rapnutri_res_all, file="/Users/holzergc/Desktop/RapnutriALL.csv")
 #write.table(Rapnutri_res_sig, file="/Users/holzergc/Desktop/RapnutriSIG.csv")
 
 
 #GO ANALYSIS
-library(goseq)
-
-Rapnutri_res_ALL <- arrange(Rapnutri_res_all, padj)
-Rapnutri_res_ALL <- left_join(x = Rapnutri_res_ALL,y = grch38[,c("ensgene","symbol","description")], by = "symbol")
-
-#add ensemble gene IDs that weren't converted
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H0YIS7'] <- 'ENSG00000161939'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P16402'] <- 'ENSG00000124575'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q02952'] <- 'ENSG00000131016.'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q147U1'] <- 'ENSG00000196605.'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='QARS1'] <- 'ENSG00000172053'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='B7Z6N1'] <- 'ENSP00000222329'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='MACROH2A1'] <- 'ENSG00000113648'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='O43379-4'] <- 'ENSP00000384792'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H2AX'] <- 'ENSG00000188486'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H13'] <- 'ENSG00000124575'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P16402'] <- 'ENSG00000124575'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59FP3'] <- 'ENSP00000307908'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q02952'] <- 'ENSP00000253332' #swiss-prot ID
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='O43379'] <- 'ENSG00000075702' #uniprotKB
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626' #trembl ID
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='GAGE4'] <- 'ENSP00000371133'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='PABIR1'] <- 'ENSG00000187866'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='A0A384N6H1'] <- 'ENSG00000167658'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q53GD7'] <- 'ENSP00000344149'
-Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P07910'] <- 'ENSP00000451291'
-
-#filter all the phosphopeptides that don't have a valid ENSEMBLE ID
-Rapnutri_res_ALL <- filter(Rapnutri_res_ALL, !is.na(x = Rapnutri_res_ALL$ensgene)) #losing some phosphopeptides that are not convertable to ensgene IDs
-
-#top 50 that have ensemble gene id's
-Rapnutri_res_ALL <- Rapnutri_res_ALL[1:50,]
-
-Rapnutri_res_ALL<-Rapnutri_res_ALL[!duplicated(Rapnutri_res_ALL$ensgene), ]
-Rapnutri_res_ALL<-data_frame(Rapnutri_res_ALL)
-
-
-diff<-Rapnutri_res_ALL
-diff<-mutate(diff, de= padj<=0.05 & abs(log2FoldChange)>=0)
-
-diff<-dplyr::select(diff, ensgene, de)
-diff1<-diff
-diff1<-diff1 %>% mutate_all(na_if,"TRUE")
-diff1[is.na(diff1)] <- 1
-
-#remove duplicate rownames
-#diff2<-diff1[!duplicated(diff1$ensgene), ]
-
-#important step
-genes <- as.integer(Rapnutri_res_ALL$padj <= 0.05 & abs(Rapnutri_res_ALL$log2FoldChange)>=0 & !is.na(Rapnutri_res_ALL$padj)) 
-names(genes)<-diff1$ensgene
-
-#genes<-data_frame(genes)
-#filter(genes, !is.na())
-#rownames(genes)<-diff1$ensgene
-#genes<-rownames_to_column(genes, var="ensgene")
-#genes<-mutate(genes, ensgene=diff1$ensgene)
-#genes<-dplyr::select(genes, -ensgene)
-#genes<-data_frame(genes)
-
-#not super useful but there nonetheless
-genlens<-getlength(names(genes), "hg19", "ensGene")
-names(genlens)<-diff1$ensgene
-
-#useful again
-pwf=nullp(genes,"hg19","ensGene")
-head(pwf)
-
-#GO analysis 
-go.wall=goseq(pwf,"hg19","ensGene")
-head(go.wall)
-
-library(ggplot2)
-colnames(go.wall)<-c("ID","over_represented_pvalue","under_represented_pvalue","Gene_Number","numInCat","GO_Term","Category")
-b<-ggplot(go.wall[1:30,], aes(x=Gene_Number, y=GO_Term, size = Gene_Number, col = Category)) + geom_point(alpha=0.7)
-b+ggtitle("Rap Nutri Gene Ontology")+xlab("Gene Number")+ylab("GO Term")+theme_bw()
-ggsave("RapnutriGO_highres1.png", width=10, height=7, dpi=300)
-ggsave("RapnutriGO_highres1_wide.png", width=12.5, height=7, dpi=300)
+# library(goseq)
+# 
+# Rapnutri_res_ALL <- arrange(Rapnutri_res_all, padj)
+# Rapnutri_res_ALL <- left_join(x = Rapnutri_res_ALL,y = grch38[,c("ensgene","symbol","description")], by = "symbol")
+# 
+# #add ensemble gene IDs that weren't converted
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H0YIS7'] <- 'ENSG00000161939'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P16402'] <- 'ENSG00000124575'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q02952'] <- 'ENSG00000131016.'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q147U1'] <- 'ENSG00000196605.'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='QARS1'] <- 'ENSG00000172053'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='B7Z6N1'] <- 'ENSP00000222329'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='MACROH2A1'] <- 'ENSG00000113648'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='O43379-4'] <- 'ENSP00000384792'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H2AX'] <- 'ENSG00000188486'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H13'] <- 'ENSG00000124575'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P16402'] <- 'ENSG00000124575'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59FP3'] <- 'ENSP00000307908'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q02952'] <- 'ENSP00000253332' #swiss-prot ID
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='O43379'] <- 'ENSG00000075702' #uniprotKB
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626' #trembl ID
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='GAGE4'] <- 'ENSP00000371133'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='PABIR1'] <- 'ENSG00000187866'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='A0A384N6H1'] <- 'ENSG00000167658'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q53GD7'] <- 'ENSP00000344149'
+# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P07910'] <- 'ENSP00000451291'
+# 
+# #filter all the phosphopeptides that don't have a valid ENSEMBLE ID
+# Rapnutri_res_ALL <- filter(Rapnutri_res_ALL, !is.na(x = Rapnutri_res_ALL$ensgene)) #losing some phosphopeptides that are not convertable to ensgene IDs
+# 
+# #top 50 that have ensemble gene id's
+# Rapnutri_res_ALL <- Rapnutri_res_ALL[1:50,]
+# 
+# Rapnutri_res_ALL<-Rapnutri_res_ALL[!duplicated(Rapnutri_res_ALL$ensgene), ]
+# Rapnutri_res_ALL<-data_frame(Rapnutri_res_ALL)
+# 
+# 
+# diff<-Rapnutri_res_ALL
+# diff<-mutate(diff, de= padj<=0.05 & abs(log2FoldChange)>=0)
+# 
+# diff<-dplyr::select(diff, ensgene, de)
+# diff1<-diff
+# diff1<-diff1 %>% mutate_all(na_if,"TRUE")
+# diff1[is.na(diff1)] <- 1
+# 
+# #remove duplicate rownames
+# #diff2<-diff1[!duplicated(diff1$ensgene), ]
+# 
+# #important step
+# genes <- as.integer(Rapnutri_res_ALL$padj <= 0.05 & abs(Rapnutri_res_ALL$log2FoldChange)>=0 & !is.na(Rapnutri_res_ALL$padj)) 
+# names(genes)<-diff1$ensgene
+# 
+# #genes<-data_frame(genes)
+# #filter(genes, !is.na())
+# #rownames(genes)<-diff1$ensgene
+# #genes<-rownames_to_column(genes, var="ensgene")
+# #genes<-mutate(genes, ensgene=diff1$ensgene)
+# #genes<-dplyr::select(genes, -ensgene)
+# #genes<-data_frame(genes)
+# 
+# #not super useful but there nonetheless
+# genlens<-getlength(names(genes), "hg19", "ensGene")
+# names(genlens)<-diff1$ensgene
+# 
+# #useful again
+# pwf=nullp(genes,"hg19","ensGene")
+# head(pwf)
+# 
+# #GO analysis 
+# go.wall=goseq(pwf,"hg19","ensGene")
+# head(go.wall)
+# 
+# library(ggplot2)
+# colnames(go.wall)<-c("ID","over_represented_pvalue","under_represented_pvalue","Gene_Number","numInCat","GO_Term","Category")
+# b<-ggplot(go.wall[1:30,], aes(x=Gene_Number, y=GO_Term, size = Gene_Number, col = Category)) + geom_point(alpha=0.7)
+# b+ggtitle("Rap Nutri Gene Ontology")+xlab("Gene Number")+ylab("GO Term")+theme_bw()
+# ggsave("RapnutriGO_highres1.png", width=10, height=7, dpi=300)
+# ggsave("RapnutriGO_highres1_wide.png", width=12.5, height=7, dpi=300)
 
 
 #EXPORTING DATA FRAMES FOR SUPPLEMENTAL FIGURES
