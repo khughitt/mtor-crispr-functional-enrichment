@@ -23,20 +23,24 @@ knitr::opts_chunk$set(
   fig.retina = 1,
   dpi = 192
 )
+
+# output directory?
+out_dir <- "output/"
+
+FGSEA_NPERM <- 10000
+MIN_PADJ <- 0.05
 ```
 
 ```{r load_gene_sets}
 # load gene MSIGdb gene sets
-gene_sets <- bind_rows(
-  msigdbr(category = "H"),
-  msigdbr(category = "C1"),
-  msigdbr(category = "C2", subcategory = "CP:KEGG"),
-)
+gene_sets <- msigdbr(category = "H")
 
 gene_sets <- gene_sets %>%
-  select(gs_name, ensembl_gene) %>%
+  select(gs_name, gene_symbol) %>%
   distinct()
 ```
+
+## Nutrient-fed
 
 ```{r load_data, message=FALSE}
 mtorc1_deseq <- read_tsv("data/rnaseq_vehicle_vs_rap.tsv", show_col_types = FALSE)
@@ -58,17 +62,17 @@ mtorc3_deseq[1:5, 1:5]
 ```{r create_gene_lists}
 # construct gene score vectors for GSEA analysis;
 mtorc1_genes <- mtorc1_deseq %>%
-  select(ensgene, log2FoldChange) %>%
+  select(symbol, log2FoldChange) %>%
   arrange(-log2FoldChange) %>%
   deframe()
 
 mtorc2_genes <- mtorc2_deseq %>%
-  select(ensgene, log2FoldChange) %>%
+  select(symbol, log2FoldChange) %>%
   arrange(-log2FoldChange) %>%
   deframe()
 
 mtorc3_genes <- mtorc3_deseq %>%
-  select(ensgene, log2FoldChange) %>%
+  select(symbol, log2FoldChange) %>%
   arrange(-log2FoldChange) %>%
   deframe()
 ```
@@ -80,11 +84,9 @@ head(enframe(mtorc3_genes))
 ```
 
 ```{r fgsea, message = FALSE, warning = FALSE}
-MIN_PADJ <- 0.05
-
-mtorc1_res <- GSEA(mtorc1_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ)
-mtorc2_res <- GSEA(mtorc2_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ)
-mtorc3_res <- GSEA(mtorc3_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ)
+mtorc1_res <- GSEA(mtorc1_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc2_res <- GSEA(mtorc2_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc3_res <- GSEA(mtorc3_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
 ```{r mtorc1_results}
@@ -110,6 +112,8 @@ mtorc3_res@result %>%
 dotplot(mtorc3_res) +
   ggplot2::xlim(0, 0.8)
 ```
+
+## Save results
 
 ```{r save_results}
 if (!dir.exists("output")) {
