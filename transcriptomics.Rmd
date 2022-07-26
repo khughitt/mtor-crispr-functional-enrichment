@@ -42,87 +42,252 @@ gene_sets <- gene_sets %>%
 
 ## Nutrient-fed
 
-```{r load_data, message=FALSE}
-mtorc1_deseq <- read_tsv("data/rnaseq_vehicle_vs_rap.tsv", show_col_types = FALSE)
-mtorc2_deseq <- read_tsv("data/rnaseq_vehicle_vs_ric.tsv", show_col_types = FALSE)
-mtorc3_deseq <- read_tsv("data/rnaseq_vehicle_vs_m7.tsv", show_col_types = FALSE)
+```{r load_nutri_data, message=FALSE}
+nutri <- read_tsv('data/rnaseq_nutri.tsv', show_col_types = FALSE)
 
-dim(mtorc1_deseq)
-dim(mtorc2_deseq)
-dim(mtorc3_deseq)
+# perform size factor normalization
+ind <- grepl("_[1-4]$", colnames(nutri))
+nutri[, ind] <- sweep(nutri[, ind], 2, colSums(nutri[, ind]), '/') * 1E6
+
+dim(nutri)
+
+# compute condition-specific totals
+nutri_rap <- nutri %>%
+  select(contains("Rap")) %>%
+  rowMeans()
+
+nutri_ric <- nutri %>%
+  select(contains("Ric")) %>%
+  rowMeans()
+
+nutri_m7 <- nutri %>%
+  select(contains("m7")) %>%
+  rowMeans()
+
+nutri_control <- nutri %>%
+  select(starts_with("v_")) %>%
+  rowMeans()
+
+# compute knockout vs. control ratios
+nutri$Ratio_Rap_v_Control <- (nutri_rap + 1) / (nutri_control + 1)
+nutri$Ratio_Ric_v_Control <- (nutri_ric + 1) / (nutri_control + 1)
+nutri$Ratio_m7_v_Control <- (nutri_m7 + 1) / (nutri_control + 1)
 ```
 
 ```{r}
 # preview data
-mtorc1_deseq[1:5, 1:5]
-mtorc2_deseq[1:5, 1:5]
-mtorc3_deseq[1:5, 1:5]
+nutri[1:5, 1:5]
 ```
 
-```{r create_gene_lists}
+```{r create_gene_lists_nutri}
 # construct gene score vectors for GSEA analysis;
-mtorc1_genes <- mtorc1_deseq %>%
-  select(symbol, log2FoldChange) %>%
-  arrange(-log2FoldChange) %>%
+mtorc1_nutri_genes <- nutri %>%
+  select(symbol, ratio = Ratio_Rap_v_Control) %>%
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
   deframe()
 
-mtorc2_genes <- mtorc2_deseq %>%
-  select(symbol, log2FoldChange) %>%
-  arrange(-log2FoldChange) %>%
+mtorc2_nutri_genes <- nutri %>%
+  select(symbol, ratio = Ratio_Ric_v_Control) %>%
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
   deframe()
 
-mtorc3_genes <- mtorc3_deseq %>%
-  select(symbol, log2FoldChange) %>%
-  arrange(-log2FoldChange) %>%
+mtorc3_nutri_genes <- nutri %>%
+  select(symbol, ratio = Ratio_m7_v_Control) %>%
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
   deframe()
 ```
 
 ```{r}
-head(enframe(mtorc1_genes))
-head(enframe(mtorc2_genes))
-head(enframe(mtorc3_genes))
+head(enframe(mtorc1_nutri_genes))
+head(enframe(mtorc2_nutri_genes))
+head(enframe(mtorc3_nutri_genes))
 ```
 
 ```{r fgsea, message = FALSE, warning = FALSE}
-mtorc1_res <- GSEA(mtorc1_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
-mtorc2_res <- GSEA(mtorc2_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
-mtorc3_res <- GSEA(mtorc3_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc1_nutri_res <- GSEA(mtorc1_nutri_genes, TERM2GENE = gene_sets, seed = 321,
+                   pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc2_nutri_res <- GSEA(mtorc2_nutri_genes, TERM2GENE = gene_sets, seed = 321,
+                   pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc3_nutri_res <- GSEA(mtorc3_nutri_genes, TERM2GENE = gene_sets, seed = 321,
+                   pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
 ```{r mtorc1_results}
-mtorc1_res@result %>%
+mtorc1_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc1_res) +
+dotplot(mtorc1_nutri_res) +
   ggplot2::xlim(0, 0.8)
 ```
 
 ```{r mtorc2_results}
-mtorc2_res@result %>%
+mtorc2_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc2_res) +
+dotplot(mtorc2_nutri_res) +
   ggplot2::xlim(0, 0.8)
 ```
 
 ```{r mtorc3_results}
-mtorc3_res@result %>%
+mtorc3_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc3_res) +
+dotplot(mtorc3_nutri_res) +
+  ggplot2::xlim(0, 0.8)
+```
+
+## Starved
+
+```{r load_starved_data, message=FALSE}
+starved <- read_tsv('data/rnaseq_starved.tsv', show_col_types = FALSE)
+
+# perform size factor normalization
+ind <- grepl("_[1-4]$", colnames(starved))
+starved[, ind] <- sweep(starved[, ind], 2, colSums(starved[, ind]), '/') * 1E6
+
+dim(starved)
+
+# compute condition-specific totals
+starved_rap <- starved %>%
+  select(contains("Rap")) %>%
+  rowMeans()
+
+starved_ric <- starved %>%
+  select(contains("Ric")) %>%
+  rowMeans()
+
+starved_m7 <- starved %>%
+  select(contains("m7")) %>%
+  rowMeans()
+
+starved_control <- starved %>%
+  select(starts_with("v_")) %>%
+  rowMeans()
+
+# compute knockout vs. control ratios
+starved$Ratio_Rap_v_Control <- (starved_rap + 1) / (starved_control + 1)
+starved$Ratio_Ric_v_Control <- (starved_ric + 1) / (starved_control + 1)
+starved$Ratio_m7_v_Control <- (starved_m7 + 1) / (starved_control + 1)
+```
+
+```{r}
+# preview data
+starved[1:5, 1:5]
+```
+
+```{r create_gene_lists_starved}
+# construct gene score vectors for GSEA analysis;
+mtorc1_starved_genes <- starved %>%
+  select(symbol, ratio = Ratio_Rap_v_Control) %>%
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
+  deframe()
+
+mtorc2_starved_genes <- starved %>%
+  select(symbol, ratio = Ratio_Ric_v_Control) %>%
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
+  deframe()
+
+mtorc3_starved_genes <- starved %>%
+  select(symbol, ratio = Ratio_m7_v_Control) %>%
+  mutate(log2ratio = log2(ratio)) %>%
+  mutate(log2ratio_abs = abs(log2ratio)) %>%
+  group_by(symbol) %>%
+  arrange(-log2ratio_abs) %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(symbol, log2ratio) %>%
+  arrange(-log2ratio) %>%
+  deframe()
+```
+
+```{r}
+head(enframe(mtorc1_starved_genes))
+head(enframe(mtorc2_starved_genes))
+head(enframe(mtorc3_starved_genes))
+```
+
+```{r fgsea, message = FALSE, warning = FALSE}
+mtorc1_starved_res <- GSEA(mtorc1_starved_genes, TERM2GENE = gene_sets, seed = 321,
+                   pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc2_starved_res <- GSEA(mtorc2_starved_genes, TERM2GENE = gene_sets, seed = 321,
+                   pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc3_starved_res <- GSEA(mtorc3_starved_genes, TERM2GENE = gene_sets, seed = 321,
+                   pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+```
+
+```{r mtorc1_results}
+mtorc1_starved_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
+
+dotplot(mtorc1_starved_res) +
+  ggplot2::xlim(0, 0.8)
+```
+
+```{r mtorc2_results}
+mtorc2_starved_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
+
+dotplot(mtorc2_starved_res) +
+  ggplot2::xlim(0, 0.8)
+```
+
+```{r mtorc3_results}
+mtorc3_starved_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
+
+dotplot(mtorc3_starved_res) +
   ggplot2::xlim(0, 0.8)
 ```
 
 ## Save results
 
 ```{r save_results}
-if (!dir.exists("output")) {
-  dir.create("output", mode = "0755")
+if (!dir.exists(out_dir)) {
+  dir.create(out_dir, mode = "0755")
 }
 
-write_tsv(mtorc1_res@result, file.path("output", "transcriptomics-gsea-results-mtorc1.tsv"))
-write_tsv(mtorc2_res@result, file.path("output", "transcriptomics-gsea-results-mtorc2.tsv"))
-write_tsv(mtorc3_res@result, file.path("output", "transcriptomics-gsea-results-mtorc3.tsv"))
+write_tsv(mtorc1_nutri_res@result, file.path(out_dir, "transcriptomics-gsea-results-nutri-mtorc1.tsv"))
+write_tsv(mtorc2_nutri_res@result, file.path(out_dir, "transcriptomics-gsea-results-nutri-mtorc2.tsv"))
+write_tsv(mtorc3_nutri_res@result, file.path(out_dir, "transcriptomics-gsea-results-nutri-mtorc3.tsv"))
+
+write_tsv(mtorc1_starved_res@result, file.path(out_dir, "transcriptomics-gsea-results-starved-mtorc1.tsv"))
+write_tsv(mtorc2_starved_res@result, file.path(out_dir, "transcriptomics-gsea-results-starved-mtorc2.tsv"))
+write_tsv(mtorc3_starved_res@result, file.path(out_dir, "transcriptomics-gsea-results-starved-mtorc3.tsv"))
 ```
 
 ## Session Info

@@ -45,33 +45,35 @@ nutri <- read_csv('data/phosphoproteomics_nutri.csv', show_col_types = FALSE)[, 
 nutri$symbol <- str_split(nutri$Phospho_Site, " ", simplify=TRUE)[, 1]
 
 # drop small number of entries with missing p-values
-nutri <- nutri[complete.cases(nutri), ]
+# nutri <- nutri[complete.cases(nutri), ]
+
+# perform size factor normalization
+ind <- grepl("_[1-4]$", colnames(nutri))
+nutri[, ind] <- sweep(nutri[, ind], 2, colSums(nutri[, ind]), '/') * 1E6
 
 dim(nutri)
 
-# compute condition-specific totals 
+# compute condition-specific totals
 nutri_rap <- nutri %>%
   select(starts_with("Rap")) %>%
-  rowSums()
+  rowMeans()
 
 nutri_ric <- nutri %>%
   select(starts_with("Ric")) %>%
-  rowSums()
+  rowMeans()
 
 nutri_m7 <- nutri %>%
   select(starts_with("m7")) %>%
-  rowSums()
+  rowMeans()
 
 nutri_control <- nutri %>%
   select(starts_with("control")) %>%
-  rowSums()
+  rowMeans()
 
-# compute knockout vs. control ratios
-nutri$Ratio_Rap_v_Control <- nutri_rap / nutri_control
-nutri$Ratio_Ric_v_Control <- nutri_ric / nutri_control
-nutri$Ratio_m7_v_Control <- nutri_m7 / nutri_control
-
-dim(nutri)
+# compute knockout vs. control ratios;
+nutri$Ratio_Rap_v_Control <- (nutri_rap + 1) / (nutri_control + 1)
+nutri$Ratio_Ric_v_Control <- (nutri_ric + 1) / (nutri_control + 1)
+nutri$Ratio_m7_v_Control <- (nutri_m7 + 1) / (nutri_control + 1)
 ```
 
 ```{r}
@@ -140,7 +142,7 @@ if (nrow(mtorc1_nutri_res@result) > 0) {
   dotplot(mtorc1_nutri_res) +
     ggplot2::xlim(0, 1.1)
 } else {
-  print("No significant enrichment results.") 
+  print("No significant enrichment results.")
 }
 ```
 
@@ -152,7 +154,7 @@ if (nrow(mtorc2_nutri_res@result) > 0) {
   dotplot(mtorc2_nutri_res) +
     ggplot2::xlim(0, 1.1)
 } else {
-  print("No significant enrichment results.") 
+  print("No significant enrichment results.")
 }
 ```
 
@@ -164,7 +166,7 @@ if (nrow(mtorc3_nutri_res@result) > 0) {
   dotplot(mtorc3_nutri_res) +
     ggplot2::xlim(0, 1.1)
 } else {
-  print("No significant enrichment results.") 
+  print("No significant enrichment results.")
 }
 ```
 
@@ -176,10 +178,16 @@ starved$symbol <- str_split(starved$Phospho_Site, " ", simplify=TRUE)[, 1]
 dim(starved)
 
 # drop few genes with missing p-values
-starved <- starved[complete.cases(starved), ]
+# starved <- starved[complete.cases(starved), ]
+# dim(starved)
+
+# size factor normalization
+ind <- grepl("_[1-4]$", colnames(starved))
+starved[, ind] <- sweep(starved[, ind], 2, colSums(starved[, ind]), '/') * 1E6
+
 dim(starved)
 
-# compute condition-specific totals 
+# compute condition-specific totals
 starved_rap <- starved %>%
   select(starts_with("Rap")) %>%
   rowSums()
@@ -197,9 +205,9 @@ starved_control <- starved %>%
   rowSums()
 
 # compute knockout vs. control ratios
-starved$Ratio_Rap_v_Control <- starved_rap / starved_control
-starved$Ratio_Ric_v_Control <- starved_ric / starved_control
-starved$Ratio_m7_v_Control <- starved_m7 / starved_control
+starved$Ratio_Rap_v_Control <- (starved_rap + 1) / (starved_control + 1)
+starved$Ratio_Ric_v_Control <- (starved_ric + 1) / (starved_control + 1)
+starved$Ratio_m7_v_Control  <- (starved_m7 +1 ) / (starved_control + 1)
 ```
 
 ```{r}
@@ -268,7 +276,7 @@ if (nrow(mtorc1_starved_res@result) > 0) {
   dotplot(mtorc1_starved_res) +
     ggplot2::xlim(0, 1.1)
 } else {
-  print("No significant enrichment results.") 
+  print("No significant enrichment results.")
 }
 ```
 
@@ -282,7 +290,7 @@ if (nrow(mtorc2_starved_res@result) > 0) {
       ggplot2::xlim(0, 1.1)
   }
 } else {
-  print("No significant enrichment results.") 
+  print("No significant enrichment results.")
 }
 ```
 
@@ -294,7 +302,7 @@ if (nrow(mtorc3_starved_res@result) > 0) {
   dotplot(mtorc3_starved_res) +
     ggplot2::xlim(0, 1.1)
 } else {
-  print("No significant enrichment results.") 
+  print("No significant enrichment results.")
 }
 ```
 
