@@ -7,6 +7,30 @@ output:
     df_print: kable
 ---
 
+## Overview
+
+Here, gene set enrichment analysis (GSEA) is performed for each of the three mTOR
+complex knockouts, with genes weighted and ranked based on the ratio of average gene
+expression for the knockouts compared to controls.
+
+This analysis was performed separately for nutrient-fed and starved samples, and was
+performed for both RNA-Seq data (here), and phosphoproteomics data (separate file.)
+
+To perform the actual gene set enrichment analysis, the `GSEA()` function from the
+[clusterProfiler](https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html) 
+Bioconductor package is used.
+
+`GSEA()` provides a helpful wrapper around [Fast Gene Set Enrichment Analysis
+(fgsea)](https://bioconductor.org/packages/release/bioc/html/fgsea.html), and makes it
+easy to visualize the results of enrichment analyses.
+
+All of the code used to perform this analysis, along with the resulting tables and
+figures depicting significantly enriched gene sets are shown in this [RMarkdown](https://rmarkdown.rstudio.com/) 
+document.
+
+The full source .Rmd as well as the input datasets used to perform the analysis can be
+found at: [https://github.com/khughitt/nguyen22-crispr-guided-multiomics](https://github.com/khughitt/nguyen22-crispr-guided-multiomics)
+
 ## Setup
 
 ```{r message = FALSE}
@@ -41,6 +65,15 @@ gene_sets <- gene_sets %>%
 ```
 
 ## Nutrient-fed
+
+First, we load the nutrient-fed RNA-Seq counts and perform a simple CPM size-factor
+normalization to enable sample-wise comparisons.
+
+Next, mean expression for each gene and for each genotype is computed.
+
+Then, the ratio of each knockout condition to the control levels is computed. When
+computing the ratios, one is added to both sides of the equation to avoid divide-by-zero
+errors in cases where the control samples had no measurable expression of a gene.
 
 ```{r load_nutri_data, message=FALSE}
 nutri <- read_tsv('data/rnaseq_nutri.tsv', show_col_types = FALSE)
@@ -78,6 +111,14 @@ nutri$Ratio_m7_v_Control <- (nutri_m7 + 1) / (nutri_control + 1)
 # preview data
 nutri[1:5, 1:5]
 ```
+
+Next, for each knockout and each gene symbol, log-ratios are computed. In cases where
+multiple entries are present for a given symbol, due to the 1:many nature of gene
+symbols & the ensembl gene identifiers originally used for mapping and quantification,
+the row with the largest absolute log2 ratio is used.
+
+The log2 ratios are sorted, and converted into 1d named vectors, as expected by
+`GSEA()`.
 
 ```{r create_gene_lists_nutri}
 # construct gene score vectors for GSEA analysis;
@@ -118,11 +159,13 @@ mtorc3_nutri_genes <- nutri %>%
   deframe()
 ```
 
-```{r}
+```{r preview_top_n_gene_ratios_nutri}
 head(enframe(mtorc1_nutri_genes))
 head(enframe(mtorc2_nutri_genes))
 head(enframe(mtorc3_nutri_genes))
 ```
+
+Next, gene set enrichment is assessed using the `GSEA()` function.
 
 ```{r fgsea, message = FALSE, warning = FALSE}
 mtorc1_nutri_res <- GSEA(mtorc1_nutri_genes, TERM2GENE = gene_sets, seed = 321,
@@ -133,7 +176,15 @@ mtorc3_nutri_res <- GSEA(mtorc3_nutri_genes, TERM2GENE = gene_sets, seed = 321,
                    pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
-```{r mtorc1_results}
+Finally, for each of the mTORC knockouts, tables and dotplots of significantly enriched
+gene sets are displayed.
+
+The dotplot visualizations show enriched gene sets along the y-axis (one per row), and
+the ratio of query genes to gene set genes along the x-axis. The size of each size is
+scaled in proportion to the total number of enriched genes matched, while color is used
+to convey statistical significance (adjusted P-value.)
+
+```{r mtorc1_nutri_results}
 mtorc1_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
@@ -141,7 +192,7 @@ dotplot(mtorc1_nutri_res) +
   ggplot2::xlim(0, 0.8)
 ```
 
-```{r mtorc2_results}
+```{r mtorc2_nutri_results}
 mtorc2_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
@@ -149,7 +200,7 @@ dotplot(mtorc2_nutri_res) +
   ggplot2::xlim(0, 0.8)
 ```
 
-```{r mtorc3_results}
+```{r mtorc3_nutri_results}
 mtorc3_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
@@ -158,6 +209,9 @@ dotplot(mtorc3_nutri_res) +
 ```
 
 ## Starved
+
+In the following sections, a similar analysis to what is described above is performed,
+but this time limited to the _starved_ samples.
 
 ```{r load_starved_data, message=FALSE}
 starved <- read_tsv('data/rnaseq_starved.tsv', show_col_types = FALSE)
@@ -235,7 +289,7 @@ mtorc3_starved_genes <- starved %>%
   deframe()
 ```
 
-```{r}
+```{r preview_top_n_gene_ratios_starved}
 head(enframe(mtorc1_starved_genes))
 head(enframe(mtorc2_starved_genes))
 head(enframe(mtorc3_starved_genes))
@@ -250,7 +304,7 @@ mtorc3_starved_res <- GSEA(mtorc3_starved_genes, TERM2GENE = gene_sets, seed = 3
                    pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
-```{r mtorc1_results}
+```{r mtorc1_starved_results}
 mtorc1_starved_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
@@ -258,7 +312,7 @@ dotplot(mtorc1_starved_res) +
   ggplot2::xlim(0, 0.8)
 ```
 
-```{r mtorc2_results}
+```{r mtorc2_starved_results}
 mtorc2_starved_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
@@ -266,7 +320,7 @@ dotplot(mtorc2_starved_res) +
   ggplot2::xlim(0, 0.8)
 ```
 
-```{r mtorc3_results}
+```{r mtorc3_starved_results}
 mtorc3_starved_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 

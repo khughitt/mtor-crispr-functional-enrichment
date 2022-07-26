@@ -7,6 +7,55 @@ output:
     df_print: kable
 ---
 
+## Overview
+
+Here, gene set enrichment analysis (GSEA) is performed for each of the three mTOR
+complex knockouts, with genes weighted and ranked based on the ratio of average gene
+expression for the knockouts compared to controls.
+
+This analysis was performed separately for nutrient-fed and starved samples, and was
+performed for both phosphoproteomics data (here) and RNA-Seq data (separate file.)
+
+To perform the actual gene set enrichment analysis, the `GSEA()` function from the
+[clusterProfiler](https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html) 
+Bioconductor package is used.
+
+`GSEA()` provides a helpful wrapper around [Fast Gene Set Enrichment Analysis
+(fgsea)](https://bioconductor.org/packages/release/bioc/html/fgsea.html), and makes it
+easy to visualize the results of enrichment analyses.
+
+All of the code used to perform this analysis, along with the resulting tables and
+figures depicting significantly enriched gene sets are shown in this [RMarkdown](https://rmarkdown.rstudio.com/) 
+document.
+
+The full source .Rmd as well as the input datasets used to perform the analysis can be
+found at: [https://github.com/khughitt/nguyen22-crispr-guided-multiomics](https://github.com/khughitt/nguyen22-crispr-guided-multiomics)
+
+## Phosphoproteomics vs. Transcriptomics analysis
+
+In general, the same analysis approach was used to assess gene set enrichment for both
+the transcriptomic (RNA-Seq) and phosphoproteomic samples.
+
+With respect to the present analysis, a major different between the two data types,
+however, is the smaller number of genes for phospho abundance could be quantified.
+
+Whereas the transcriptomics dataset includes measurements for ~61,500 genes, the phospho
+dataset includes measurements for only ~3,200 genes.
+This is due both to the different natures of the assays, as well as to the fact that the
+phosphoproteomic data is measured at the _protein_ level, and not all proteins are able
+to be mapped to gene symbols.
+
+The effect of this is that there are far fewer genes in the universe of query genes used
+for the phosphoproteomics enrichment analysis, compared with the transcriptomics
+enrichment analysis, and thus, a more limited ability to detect significantly enrichmed
+gene sets for this data.
+
+In order to show potentially interesting / "trending" gene sets, a more relaxed adjusted
+P-value cutoff of "0.15" was used for the phosphoprotetomics analysis.
+
+For a more detailed description of each of the major steps in the analysis, refer to the
+_nutrient-fed_ section of the _transcriptomics_ gene set enrichment results.
+
 ## Setup
 
 ```{r message = FALSE}
@@ -26,7 +75,9 @@ knitr::opts_chunk$set(
 
 # output directory?
 out_dir <- "output/"
+
 FGSEA_NPERM <- 10000
+MIN_PADJ <- 0.15
 ```
 
 ```{r load_gene_sets}
@@ -129,45 +180,33 @@ head(enframe(mtorc3_nutri_genes))
 ```
 
 ```{r fgsea, message = FALSE, warning = FALSE}
-mtorc1_nutri_res <- GSEA(mtorc1_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15, nPermSimple = FGSEA_NPERM)
-mtorc2_nutri_res <- GSEA(mtorc2_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15, nPermSimple = FGSEA_NPERM)
-mtorc3_nutri_res <- GSEA(mtorc3_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15, nPermSimple = FGSEA_NPERM)
+mtorc1_nutri_res <- GSEA(mtorc1_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc2_nutri_res <- GSEA(mtorc2_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc3_nutri_res <- GSEA(mtorc3_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
 ```{r mtorc1_results}
-if (nrow(mtorc1_nutri_res@result) > 0) {
-  mtorc1_nutri_res@result %>%
-    select(setSize, NES, pvalue, p.adjust)
+mtorc1_nutri_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-  dotplot(mtorc1_nutri_res) +
-    ggplot2::xlim(0, 1.1)
-} else {
-  print("No significant enrichment results.")
-}
+dotplot(mtorc1_nutri_res) +
+  ggplot2::xlim(0, 1.1)
 ```
 
 ```{r mtorc2_nutri_results}
-if (nrow(mtorc2_nutri_res@result) > 0) {
-  mtorc2_nutri_res@result %>%
-    select(setSize, NES, pvalue, p.adjust)
+mtorc2_nutri_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-  dotplot(mtorc2_nutri_res) +
-    ggplot2::xlim(0, 1.1)
-} else {
-  print("No significant enrichment results.")
-}
+dotplot(mtorc2_nutri_res) +
+  ggplot2::xlim(0, 1.1)
 ```
 
 ```{r mtorc3_nutri_results}
-if (nrow(mtorc3_nutri_res@result) > 0) {
-  mtorc3_nutri_res@result %>%
-    select(setSize, NES, pvalue, p.adjust)
+mtorc3_nutri_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-  dotplot(mtorc3_nutri_res) +
-    ggplot2::xlim(0, 1.1)
-} else {
-  print("No significant enrichment results.")
-}
+dotplot(mtorc3_nutri_res) +
+  ggplot2::xlim(0, 1.1)
 ```
 
 ## Starved
@@ -176,10 +215,6 @@ if (nrow(mtorc3_nutri_res@result) > 0) {
 starved <- read_csv('data/phosphoproteomics_starved.csv', show_col_types = FALSE)[, -1]
 starved$symbol <- str_split(starved$Phospho_Site, " ", simplify=TRUE)[, 1]
 dim(starved)
-
-# drop few genes with missing p-values
-# starved <- starved[complete.cases(starved), ]
-# dim(starved)
 
 # size factor normalization
 ind <- grepl("_[1-4]$", colnames(starved))
@@ -263,47 +298,33 @@ head(enframe(mtorc3_starved_genes))
 ```
 
 ```{r fgsea_starved, message = FALSE, warning = FALSE}
-mtorc1_starved_res <- GSEA(mtorc1_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15, nPermSimple = FGSEA_NPERM)
-mtorc2_starved_res <- GSEA(mtorc2_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15, nPermSimple = FGSEA_NPERM)
-mtorc3_starved_res <- GSEA(mtorc3_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = 0.15, nPermSimple = FGSEA_NPERM)
+mtorc1_starved_res <- GSEA(mtorc1_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc2_starved_res <- GSEA(mtorc2_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc3_starved_res <- GSEA(mtorc3_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
 ```{r mtorc1_starved_results}
-if (nrow(mtorc1_starved_res@result) > 0) {
-  mtorc1_starved_res@result %>%
-    select(setSize, NES, pvalue, p.adjust)
+mtorc1_starved_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-  dotplot(mtorc1_starved_res) +
-    ggplot2::xlim(0, 1.1)
-} else {
-  print("No significant enrichment results.")
-}
+dotplot(mtorc1_starved_res) +
+  ggplot2::xlim(0, 1.1)
 ```
 
 ```{r mtorc2_starved_results}
-if (nrow(mtorc2_starved_res@result) > 0) {
-  mtorc2_starved_res@result %>%
-    select(setSize, NES, pvalue, p.adjust)
+mtorc2_starved_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-  if (nrow(mtorc2_starved_res) > 0) {
-    dotplot(mtorc2_starved_res) +
-      ggplot2::xlim(0, 1.1)
-  }
-} else {
-  print("No significant enrichment results.")
-}
+dotplot(mtorc2_starved_res) +
+  ggplot2::xlim(0, 1.1)
 ```
 
 ```{r mtorc3_starved_results}
-if (nrow(mtorc3_starved_res@result) > 0) {
-  mtorc3_starved_res@result %>%
-    select(setSize, NES, pvalue, p.adjust)
+mtorc3_starved_res@result %>%
+  select(setSize, NES, pvalue, p.adjust)
 
-  dotplot(mtorc3_starved_res) +
-    ggplot2::xlim(0, 1.1)
-} else {
-  print("No significant enrichment results.")
-}
+dotplot(mtorc3_starved_res) +
+  ggplot2::xlim(0, 1.1)
 ```
 
 ## Save results
