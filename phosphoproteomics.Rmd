@@ -59,11 +59,12 @@ _nutrient-fed_ section of the _transcriptomics_ gene set enrichment results.
 ## Setup
 
 ```{r message = FALSE}
-library(tidyverse)
-library(msigdbr)
 library(clusterProfiler)
 library(enrichplot)
 library(ggnewscale)
+library(msigdbr)
+library(tidyverse)
+library(xlsx)
 
 # plot opts
 knitr::opts_chunk$set(
@@ -334,6 +335,7 @@ if (!dir.exists(out_dir)) {
   dir.create(out_dir, mode = "0755")
 }
 
+# save individual tsv files
 write_tsv(mtorc1_nutri_res@result, file.path(out_dir, "phosphoproteomics-gsea-results-nutri_mtorc1.tsv"))
 write_tsv(mtorc2_nutri_res@result, file.path(out_dir, "phosphoproteomics-gsea-results-nutri_mtorc2.tsv"))
 write_tsv(mtorc3_nutri_res@result, file.path(out_dir, "phosphoproteomics-gsea-results-nutri_mtorc3.tsv"))
@@ -341,6 +343,16 @@ write_tsv(mtorc3_nutri_res@result, file.path(out_dir, "phosphoproteomics-gsea-re
 write_tsv(mtorc1_starved_res@result, file.path(out_dir, "phosphoproteomics-gsea-results-starved_mtorc1.tsv"))
 write_tsv(mtorc2_starved_res@result, file.path(out_dir, "phosphoproteomics-gsea-results-starved_mtorc2.tsv"))
 write_tsv(mtorc3_starved_res@result, file.path(out_dir, "phosphoproteomics-gsea-results-starved_mtorc3.tsv"))
+
+# save combined xls file
+xlsx_outfile <- file.path(out_dir, "phosphoproteomics-gsea-results.xlsx")
+
+write.xlsx(mtorc1_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC1-nutri")
+write.xlsx(mtorc1_starved_res@result, file = xlsx_outfile, sheetName = "mTORC1-starved", append = TRUE)
+write.xlsx(mtorc2_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC2-nutri", append = TRUE)
+write.xlsx(mtorc2_starved_res@result, file = xlsx_outfile, sheetName = "mTORC2-starved", append = TRUE)
+write.xlsx(mtorc3_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC3-nutri", append = TRUE)
+write.xlsx(mtorc3_starved_res@result, file = xlsx_outfile, sheetName = "mTORC3-starved", append = TRUE)
 ```
 
 ## Session Info

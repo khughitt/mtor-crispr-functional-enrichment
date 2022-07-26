@@ -1,7 +1,8 @@
+r-base>=4.1
+r-ggnewscale
+r-msigdbr
 r-rmarkdown
 r-tidyverse
-bioconductor-msigdbr
+r-xlsx
 bioconductor-clusterprofiler
 bioconductor-enrichplot
-r-ggnewscale
-
