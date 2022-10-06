@@ -93,7 +93,7 @@ gene_sets <- gene_sets %>%
 ## Nutrient-fed
 
 ```{r load_nutri_data, message=FALSE}
-nutri <- read_csv('data/phosphoproteomics_nutri.csv', show_col_types = FALSE)[, -1]
+nutri <- read_csv('../data/phosphoproteomics_nutri.csv', show_col_types = FALSE)[, -1]
 nutri$symbol <- str_split(nutri$Phospho_Site, " ", simplify=TRUE)[, 1]
 
 # drop small number of entries with missing p-values

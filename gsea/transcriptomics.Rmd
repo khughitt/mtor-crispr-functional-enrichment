@@ -77,7 +77,7 @@ computing the ratios, one is added to both sides of the equation to avoid divide
 errors in cases where the control samples had no measurable expression of a gene.
 
 ```{r load_nutri_data, message=FALSE}
-nutri <- read_tsv('data/rnaseq_nutri.tsv', show_col_types = FALSE)
+nutri <- read_tsv('../data/rnaseq_nutri.tsv', show_col_types = FALSE)
 
 # perform size factor normalization
 ind <- grepl("_[1-4]$", colnames(nutri))
