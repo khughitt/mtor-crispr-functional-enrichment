@@ -1,0 +1,228 @@
+---
+title: "CRISPR-guided multiomics unveils direct mTOR inhibition of Hippo signaling through CDCP1: Phosphoproteomics Differential Abundance"
+output:
+  html_document:
+    df_print: kable
+  pdf_document:
+    df_print: kable
+---
+
+## Overview
+
+
+## Setup
+
+```{r setup, message=FALSE}
+library(tidyverse)
+library(plotly)
+library(annotables)
+
+# plot opts
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.height = 3.6,
+  fig.retina = 1,
+  dpi = 192
+)
+
+# output directory
+out_dir <- "output/2022-10-25"
+
+if (!dir.exists(out_dir)) {
+  dir.create(out_dir, recursive = TRUE, mode = '0755')
+}
+
+# load uniprot id mapping
+# source: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/by_organism/
+cnames <- c("uniprotkb_ac", "uniprotkb_id", "entrez_gene", "refseq", "gi", "pdb", "go", "uniref100",
+            "uniref90", "uniref50", "uniparc", "pir", "ncbi_taxon", "mim", "unigene", "pubmed", "embl",
+            "embl_cds", "ensembl", "ensembl_trs", "ensembl_pro", "additional_pubmed")
+
+mapping <- read_tsv("/data/ref/uniprot/2022_10/HUMAN_9606_idmapping_selected.tab.gz", 
+                    col_names = cnames, col_types = cols(entrez_gene = col_character()))
+
+# for simplicity, we will drop multi-mapped entries
+# table(grepl(";", mapping$entrez_gene))
+#  FALSE   TRUE 
+# 205518    270 
+
+# manually add CDCP1, etc. annotations for now..
+# - "CIC1" (Q96RK0) is not present in the nutri / phospho data
+# - "XRCC1" (P18887) is not present in the nutri / phospho data
+mapping[mapping$uniprotkb_ac == "A0A024R2T5", "entrez_gene"] <- "64866"
+
+mapping <- mapping[!grepl(";", mapping$entrez_gene), ]
+mapping$entrez_gene <- as.numeric(mapping$entrez_gene)
+```
+
+```{r helper_funcs}
+plot_volcano <- function(dat, title) {
+  dat <- dat %>%
+    mutate(log10pval=-log10(padj))
+
+  # assign specific colors genes of interest to highlight
+  mtorc <- c("CDCP1", "KRT8", "PPP1R13L", "KIF1A", "CIC" )
+  mtorc1_unique <- c( "XRCC1", "FASN", "HDAC7")
+  mtorc3_unique <- c("PPP1R14A", "SIPA1L3")
+
+  dat$group <- ifelse(dat$symbol %in% mtorc, "Shared", 
+                   ifelse(dat$symbol %in% mtorc1_unique, "mTORC1",
+                          ifelse(dat$symbol %in% mtorc3_unique, "mTORC3", "Other")))
+
+  pal <- c("#1CADE0", "#25C271", "#EAAD72", "#888888")
+  pal <- setNames(pal, c("Shared", "mTORC1", "mTORC3", "Other"))
+
+  # helper func to draw vertical lines
+  # https://stackoverflow.com/a/34097929/554531
+  vline <- function(x = 0, color = "red") {
+    list(type = "line", y0 = 0, y1 = 1, yref = "paper", x0 = x, x1 = x, line = list(color = color,
+                                                                                    dash = "dashed"))
+  }
+
+  plot_ly(data = dat, 
+          x = ~log2ratio, 
+          y = ~log10pval,
+          color = ~group,
+          colors = pal,
+          type = 'scatter', 
+          mode = 'markers',
+          marker = list(size = 5),
+          text = ~paste("<b>", uniprot, "</b><br><br>", 
+                        "<b>", symbol, "</b><br><br>", "<extra></extra>")) %>%
+    layout(title = title) %>%
+    layout(shapes = list(vline(-1), vline(1))) %>%
+    add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
+}
+
+# convert a single uniprot id 
+uni2symbol <- function(uniprot_id) {
+  if (uniprot_id %in% mapping$uniprotkb_ac) {
+    entrez_id <- mapping$entrez_gene[match(uniprot_id, mapping$uniprotkb_ac)]
+
+    if (!is.na(entrez_id)) {
+      return(grch38$symbol[match(entrez_id, grch38$entrez)])
+    } else {
+      return(NA)
+    }
+  } else {
+    return(NA)
+  }
+}
+
+# convert multiple uniprot ids
+uni2symbols <- function(uniprot_ids) {
+  all_symbols <- c()
+
+  for(ids in uniprot_ids) {
+    uniprot_ids_vec <- unlist(str_split(ids, "; "))
+
+    symbols <- uni2symbol(uniprot_ids_vec[1])
+
+    for (i in 2:length(uniprot_ids_vec)) {
+      symbols <- c(symbols, uni2symbol(uniprot_ids_vec[i]))
+    }
+
+    symbols <- unique(symbols[!is.na(symbols)])
+    
+    all_symbols <- c(all_symbols, paste0(symbols, collapse = "; "))
+  }
+
+  return (all_symbols)
+}
+```
+
+## Nutrient-fed
+
+```{r load_nutri}
+nutri <- read_tsv("../data/phospho-peptides-nutri.tsv", show_col_types = FALSE) %>%
+  rename(uniprot=`Master Protein Accessions`,
+         mod=`Modifications in Master Proteins`)
+
+dim(nutri)
+```
+
+```{r}
+# limit to phospho entries
+phospho_mask <- grepl("Phospho", nutri$Modifications)
+table(phospho_mask)
+
+nutri <- nutri[phospho_mask, ]
+```
+
+```{r}
+# add gene symbols
+nutri$symbol <- uni2symbols(nutri$uniprot)
+
+nutri <- nutri %>%
+  select(uniprot, symbol, everything())
+```
+
+### ΔRPTOR
+
+```{r nutri_rap}
+nutri_rap <- nutri %>%
+  select(uniprot,
+         symbol,
+         mod,
+         log2ratio=`Abundance Ratio (log2): (Rap_del_1R) / (V_del_4R)`,
+         padj=`Abundance Ratio Adj. P-Value: (Rap_del_1R) / (V_del_4R)`) %>%
+  filter(!is.na(padj))
+```
+
+Phospho sites with the highest differential abundance between ΔRPTOR and control?
+
+```{r}
+nutri_rap %>%
+  arrange(padj) %>%
+  head(20)
+```
+
+
+```{r raptor_nutri_volcano_plot}
+plot_volcano(nutri_rap, "ΔRPTOR Phospho Differential Abundance")
+```
+
+### ΔMEAK7
+
+```{r nutri_meak7}
+nutri_meak7 <- nutri %>%
+  select(uniprot,
+         symbol,
+         mod,
+         log2ratio=`Abundance Ratio (log2): (M7_del_SR) / (V_del_4R)`,
+         padj=`Abundance Ratio Adj. P-Value: (M7_del_SR) / (V_del_4R)`) %>%
+  filter(!is.na(padj))
+```
+
+Phospho sites with the highest differential abundance between ΔMEAK7 and control?
+
+```{r}
+nutri_meak7 %>%
+  arrange(padj) %>%
+  head(20)
+```
+
+
+```{r meak7_nutri_volcano_plot}
+plot_volcano(nutri_meak7, "ΔMEAK7 Phospho Differential Abundance")
+```
+
+## Save Results
+
+```{r}
+nutri %>%
+  write_tsv(file.path(out_dir, "phospho_nutri.tsv"))
+
+nutri_rap %>%
+  write_tsv(file.path(out_dir, "phospho_nutri_rap_vs_control.tsv"))
+
+nutri_meak7 %>%
+  write_tsv(file.path(out_dir, "phospho_nutri_meak7_vs_control.tsv"))
+```
+
+## Session Info
+
+```{r session_info}
+sessionInfo()
+```
+

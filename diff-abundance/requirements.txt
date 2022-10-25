@@ -1,0 +1,6 @@
+r-base>=4.1
+r-annotables
+r-rmarkdown
+r-plotly
+r-tidyverse
+r-xlsx

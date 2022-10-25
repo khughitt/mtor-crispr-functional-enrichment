@@ -1,204 +1,146 @@
-#read in and preview the raw counts file
-setwd("~/Desktop/Desktop Files/Phosphoproteomics")
-mtor_raw_counts <- read.csv('final_phosphoproteomics_caltech_nutri.csv' , row.names = 1)
-head(mtor_raw_counts)
-str(mtor_raw_counts)
+#
+# Differential RNA-Seq and Phospho abundance analysis: Raptor knockout
+#
+library(DESeq2)
+library(tidyverse)
+library(pheatmap)
+library(ggfortify)
+library(annotables)
+library(RColorBrewer)
+library(EnhancedVolcano)
+
+# load phospho / nutri data
+phospho <- read.csv('/data/proj/mtorc3/mika/final_phosphoproteomics_caltech_nutri.csv', row.names = 1)
+
+# load (transcriptome?..) mTOR/HIPPO literature rankings
+mtorc1_tx_down_reg_mtor_hippo_rankings <- read.csv('../../pubtator/output/2022-08-17/tx/mtorc1_tx_down-reg_mtor_hippo_rankings.csv', row.names = 1)
+mtorc1_tx_up_reg_mtor_hippo_rankings <- read.csv('../../pubtator/output/2022-08-17/tx/mtorc1_tx_up-reg_mtor_hippo_rankings.csv', row.names = 1)
 
 #extract gene symbol from phospho site column
-mtor_raw_counts$symbol <- str_extract(mtor_raw_counts$Phospho_Site, "[^ ]+")
-mtor_raw_counts <- mtor_raw_counts %>% relocate(symbol, .before = Phospho_Site)
-mtor_raw_counts <- mtor_raw_counts %>% relocate(Phospho_Site, .after = Uniprot_ID)
+phospho$symbol <- str_extract(phospho$Phospho_Site, "[^ ]+")
 
-mtor_raw_counts <- dplyr::select(mtor_raw_counts, Phospho_Site, control_nutri_1, control_nutri_2, control_nutri_3, Rap_nutri_1, Rap_nutri_2, Rap_nutri_3, Rap_nutri_4)
-row.names(mtor_raw_counts) <- mtor_raw_counts$Phospho_Site
-mtor_raw_counts$Phospho_Site <- NULL #erase column but leave the row names
-#write.csv(mtor_raw_counts, row.names = TRUE, "final_phosphoproteomics_caltech_nutri_phospho_names_included.csv")
+phospho <- phospho %>% 
+j  select(symbol, everything()) %>%
+  column_to_rownames("Phospho_Site")
 
-# TAILOR RAW COUNTS
-library(tibble)  # for `rownames_to_column` and `column_to_rownames`
-#mtor_raw_counts<- as.matrix(as.data.frame(mtor_raw_counts))
-Rap_nutri <- dplyr::select(mtor_raw_counts, control_nutri_1, control_nutri_2, control_nutri_3, Rap_nutri_1, Rap_nutri_2, Rap_nutri_3, Rap_nutri_4)
+# create raptor knockout sub dataframe
+rap_nutri <- phospho %>%
+  select(control_nutri_1, control_nutri_2, control_nutri_3, Rap_nutri_1, Rap_nutri_2, Rap_nutri_3, Rap_nutri_4)
 
-#Rap_nutri <- arrange(Rap_nutri, Phospho_Site)
-head(Rap_nutri)
-Rap_nutri<- as.data.frame(Rap_nutri)
-#rownames_to_column(Rap_nutri$Phospho_Site)
-
-
-# SET UP METADATA
-#create the Rictors for the metadata
-cell_type <- c("Vector","Vector","Vector", "Raptor","Raptor","Raptor","Raptor")
-starv_status <- c("Nutri","Nutri","Nutri", "Nutri","Nutri","Nutri","Nutri")
-all_comb <- c("control_nutri","control_nutri","control_nutri", "Rap_Nutri","Rap_Nutri","Rap_Nutri","Rap_Nutri")
+# create sample metadata table
+cell_type <- c("Vector", "Vector", "Vector", "Raptor", "Raptor", "Raptor", "Raptor")
+starv_status <- c("Nutri", "Nutri", "Nutri",  "Nutri", "Nutri", "Nutri", "Nutri")
+all_comb <- c("control_nutri", "control_nutri", "control_nutri",  "Rap_Nutri", "Rap_Nutri", "Rap_Nutri", "Rap_Nutri")
 
 #combine into a dataframe for the metadata
 Rap_v_Control_nutri_metadata <- data.frame(cell_type, starv_status, all_comb)
-#specify row names to match up to count matrix column names and preview the metadata
-rownames(Rap_v_Control_nutri_metadata) <- c("control_nutri_1","control_nutri_2","control_nutri_3", "Rap_nutri_1","Rap_nutri_2","Rap_nutri_3","Rap_nutri_4")
-head(Rap_v_Control_nutri_metadata)
 
-
-# CHECK IF METADATA CORRESPONDS WITH RAW COUNTS
-#call row and column names of the metadata and raw counts, respectively
-rownames(Rap_v_Control_nutri_metadata)
-colnames(Rap_nutri)
-
-#check if sample names match (between the column names of the data matrix and row names of the metadata)
-all(rownames(Rap_v_Control_nutri_metadata)==colnames(Rap_nutri))
-#returns TRUE, so we do not have to reorder and can move on to making the DESeq2 object
-
-# CHECK IF METADATA CORRESPONDS WITH RAW COUNTS
-
-#View both the count matrix and metadata
-#View(Rap_nutri)
-#View(Rap_v_Control_nutri_metadata)
-
-#call row and column names of the metadata and raw counts, respectively
-rownames(Rap_v_Control_nutri_metadata)
-colnames(Rap_v_Control_nutri_metadata)
-
-#check if sample names match (between the column names of the data matrix and row names of the metadata)
-all(rownames(Rap_v_Control_nutri_metadata)==colnames(Rap_nutri))
-#returns TRUE, so we do not have to reorder and can move on to making the DESeq2 object
-
-#load libraries
-library(DESeq2)
-library(tidyverse)
+#specify row names to match up to abundance matrix column names and preview the metadata
+# rownames(Rap_v_Control_nutri_metadata) <- c("control_nutri_1", "control_nutri_2", "control_nutri_3",
+#                                             "Rap_nutri_1", "Rap_nutri_2", "Rap_nutri_3",
+#                                             "Rap_nutri_4")
+rownames(Rap_v_Control_nutri_metadata) <- colnames(rap_nutri)
 
 # BEGIN DESEQ2 ANALYSIS
 #create the DESeq2 object
-dds_Rapnutri <- DESeqDataSetFromMatrix(countData = round(Rap_nutri),
+dds <- DESeqDataSetFromMatrix(countData = round(rap_nutri),
                                        colData = Rap_v_Control_nutri_metadata,
                                        design = ~ cell_type)
 
 
 # NORMALIZED COUNTS
 #calculate normalized counts using size factors
-dds_Rapnutri <- estimateSizeFactors(dds_Rapnutri)
-sizeFactors(dds_Rapnutri)
+dds <- estimateSizeFactors(dds)
 
 #extract normalized counts from DESeq2 object
-normalized_Rapnutri_counts <- counts(dds_Rapnutri, normalized = TRUE)
-View(normalized_Rapnutri_counts)
+normed_counts <- counts(dds, normalized = TRUE)
 
-#log transform the normalized counts to improve visualization of clustering in visuals
-vsd_Rapnutri <- vst(dds_Rapnutri, blind = TRUE)
+vst_counts <- vst(dds, blind = TRUE)
 
-#extract vst transformed normalized counts as a matrix from the vsd object
-vsd_mat_Rapnutri <- assay(vsd_Rapnutri)
-#compute pairwise correlation values between each pair of samples
-vsd_cor_Rapnutri <- cor(vsd_mat_Rapnutri)
+#extract vst transformed normalized counts as a matrix from the vst object
+vst_mat <- assay(vst_counts)
+vst_cor_mat <- cor(vst_mat)
 
 # CORRELATION HEATMAP, PCA PLOT, AND OTHER VISUALS
 
-#load pheatmap library
-library(pheatmap)
-
 #plot the correlation heatmap
-pheatmap(vsd_cor_Rapnutri, annotation = dplyr::select(Rap_v_Control_nutri_metadata, all_comb))
-#pheatmap(vsd_cor_Rapnutri)
-
-#load tools for PCA
-#install.packages("ggfortify")
-library(ggfortify)
+pheatmap(vst_cor_mat, annotation = dplyr::select(Rap_v_Control_nutri_metadata, all_comb))
+#pheatmap(vst_cor_mat)
 
 #plot PCA
-#autoplot(prcomp(vsd_cor_Rapnutri), data=Rapnutri_metadata, colour="all_comb", label=TRUE, labl.size=3)
-pc<-autoplot(prcomp(vsd_cor_Rapnutri), data=Rap_v_Control_nutri_metadata, colour="all_comb", label=FALSE, size=4.00)
-pc+scale_color_manual(values=c("deepskyblue1", "green1"))+theme_classic()
+#autoplot(prcomp(vst_cor_mat), data=Rapnutri_metadata, colour="all_comb", label=TRUE, labl.size=3)
+autoplot(prcomp(vst_cor_mat), 
+         data=Rap_v_Control_nutri_metadata, colour="all_comb", label=FALSE, size=4.00) + 
+  scale_color_manual(values=c("deepskyblue1", "green1")) +
+  theme_classic()
+
 ggsave("RapnutriPCA_highres.png", width=7, height=7, dpi=300)
 
 #MODEL FITTING & VISUALIZATION
 
 #perform model fitting with DESeq
-dds_Rapnutri <- DESeq(dds_Rapnutri)
+dds <- DESeq(dds)
 
 #calculate mean and variance for each gene of the samples
-Rapnutri_mean_counts <- apply(Rap_nutri, 1, mean)
-Rapnutri_variance_counts <- apply(Rap_nutri, 1, var)
+count_mean <- apply(rap_nutri, 1, mean)
+count_var <- apply(rap_nutri, 1, var)
 #create a data frame to plot the relationship between mean and variance for each gene
-df <- data.frame(Rapnutri_mean_counts, Rapnutri_variance_counts)
+df <- data.frame(count_mean, count_var)
 
 #plot the mean and variance for each gene
 ggplot(df)+
-  geom_point(aes(x=Rapnutri_mean_counts, y=Rapnutri_variance_counts))+
+  geom_point(aes(x=count_mean, y=count_var))+
   scale_y_log10()+
   scale_x_log10()+
   xlab("Mean counts per gene")+
   ylab("Variance per gene")
 
-#plot dispersion estimates
-#plotDispEsts(dds_Rapnutri)
-
 # DE ANALYSIS RESULTS
 contrast1<-c("cell_type","Raptor", "Vector")
 
 #extract the results of the differential expression analysis
-Rapnutri_res <- results(dds_Rapnutri, contrast=contrast1, alpha = 0.05)
+res <- results(dds, contrast=contrast1, alpha = 0.05)
 
 
-# SHRINK LOG2FC
 #shrink log2 fold changes
-Rapnutri_res <- lfcShrink(dds_Rapnutri, contrast=contrast1, type="ashr", res=Rapnutri_res)
-#plot MA plot again 
-#plotMA(Rapnutri_res, ylim = c(-2,2))
-
-#descriptions for columns in results table
-#mcols(Rapnutri_res)
-
-#view the first few rows of the results table
-#head(Rapnutri_res)
-
-#preview DEGs and genes filtered
-summary(Rapnutri_res)
+res <- lfcShrink(dds, contrast=contrast1, type="ashr", res=res)
 
 # SIGNIFICANT GENES
 #test for significant genes
-Rapnutri_res <- results(dds_Rapnutri, alpha = 0.05, contrast=contrast1, lfcThreshold = 0) ####### could just leave the default value. 
+res <- results(dds, alpha = 0.05, contrast=contrast1, lfcThreshold = 0) ####### could just leave the default value. 
+
 #reshrink fold changes with modified results
-Rapnutri_res <- lfcShrink(dds_Rapnutri, contrast=contrast1, type="ashr", res=Rapnutri_res)
-
-#run summary again
-summary(Rapnutri_res)
-
-
-# ANNOTABLES FOR GENE SPECIFICATIONS             
-#to better understand which genes the results pertain to, use annotables
-#install.packages("devtools")
-#devtools::install_github("stephenturner/annotables")
-#load libraries
-library(dplyr)
-library(annotables)
-grch38
+res <- lfcShrink(dds, contrast=contrast1, type="ashr", res=res)
 
 #extract gene name from the phosphopeptide name
 #to annotate genes, first turn results table into data frame
-library(stringr)
-Rapnutri_res_all <- data.frame(Rapnutri_res)
-Rapnutri_res_all$symbol <- str_extract(rownames(mtor_raw_counts), "[^ ]+") #extract the symbol from the rowname
+res_all <- data.frame(res)
+res_all$symbol <- str_extract(rownames(phospho), "[^ ]+") #extract the symbol from the rowname
 
-library(dplyr)
-require(dplyr)
-Rapnutri_res_all <- Rapnutri_res_all %>% relocate(symbol, .before = baseMean)
+res_all <- res_all %>% 
+  select(symbol, everything()) %>%
+  filter(!is.na(padj))
 
-#SIGNIFICANT GENES
-Rapnutri_res_all<-filter(Rapnutri_res_all, !is.na(pvalue))
-Rapnutri_res_all<-filter(Rapnutri_res_all, !is.na(padj))
+# KH: TEMP / TESTING (Oct 6, 2022)
+# write_tsv(res_all, 'phosphoproteomics_Rap_nutri_deseq_res.tsv')
+
+# res_all <- filter(res_all, !is.na(pvalue))
+# res_all <- filter(res_all, !is.na(padj))
 
 #extract significant DE genes
-Rapnutri_res_sig <- subset(Rapnutri_res_all, padj <= 0.05)
+res_sig <- subset(res_all, padj <= 0.05)
 
 #order genes by padj to generate final table of significant results
-Rapnutri_res_sig <- arrange(Rapnutri_res_sig, padj)
-#View(Rapnutri_res_sig)
+res_sig <- arrange(res_sig, padj)
+#View(res_sig)
 
 #subset normalized counts to only significant DE genes
-normalized_Rapnutri_counts <- as.data.frame(normalized_Rapnutri_counts) #have the phospho site as row names
-symbol <- str_extract(rownames(mtor_raw_counts), "[^ ]+") #extract the symbol from the rowname
-normalized_Rapnutri_counts$symbol <- symbol
-normalized_Rapnutri_counts <- normalized_Rapnutri_counts %>% relocate(symbol, .before = control_nutri_1)
+normed_counts <- as.data.frame(normed_counts) #have the phospho site as row names
+symbol <- str_extract(rownames(phospho), "[^ ]+") #extract the symbol from the rowname
+normed_counts$symbol <- symbol
+normed_counts <- normed_counts %>% relocate(symbol, .before = control_nutri_1)
 
-sig_norm_counts_Rapnutri <- normalized_Rapnutri_counts[rownames(Rapnutri_res_sig),] #extract just the significant phosphopeptides from the normalized data frame
+sig_norm_counts_Rapnutri <- normed_counts[rownames(res_sig),] #extract just the significant phosphopeptides from the normalized data frame
 sig_norm_counts_Rapnutri$Phospho_site <- rownames(sig_norm_counts_Rapnutri)
 #sig_norm_counts_Rapnutri<- left_join(x = sig_norm_counts_Rapnutri,y = grch38[,c("ensgene","symbol","description")], by = "symbol")
 #sig_norm_counts_Rapnutri <- filter(sig_norm_counts_Rapnutri, !is.na(ensgene)) #filter out if phosphopeptide corresponding gene doesn't have ensemble gene IDs
@@ -212,7 +154,6 @@ sig_norm_counts_Rapnutri$Phospho_site <- NULL
 
 #HEATMAP
 #choose a color palette from RColorBrewer
-library(RColorBrewer)
 heat_colors <- brewer.pal(6, "Blues")
 my_colors <- list(all_comb=c(Rap_Nutri="green1", control_nutri="deepskyblue1"))
 
@@ -257,12 +198,10 @@ m=ggplot(top_20_Rapnutri)+
 m+scale_color_manual(values=c("deepskyblue1", "green1"))
 
 ggsave("rapnutriDEgen4.png", width=8.5, height=7, dpi=300)
-#write.csv(as.data.frame(Rapnutri_res), "/Users/holzergc/Desktop/Rapnutri_res.csv")
-
 
 #UP AND DOWNREGULATED GENES 
 #downregulated phosphopeptides
-rapnutri_downreg <- filter(Rapnutri_res_all, log2FoldChange <= -1.0, padj <= 0.05)
+rapnutri_downreg <- filter(res_all, log2FoldChange <= -1.0, padj <= 0.05)
 rapnutri_downreg <- arrange(rapnutri_downreg, padj)
 
 #export significantly downreg genes
@@ -272,10 +211,10 @@ unique_downreg_Rap_nutri <- unique(rapnutri_downreg$symbol)
 write.csv(unique_downreg_Rap_nutri, "phospho_Rap_nutri_sig_downreg_symbol.csv")
 
 
-#normalized_Rapnutri_counts <- rownames_to_column(normalized_Rapnutri_counts, var = "Phospho_Site") 
+#normed_counts <- rownames_to_column(normed_counts, var = "Phospho_Site") 
 rapnutri_downreg <- rownames_to_column(rapnutri_downreg, var = "Phospho_Site") 
 
-sig_norm_counts_downreg <- normalized_Rapnutri_counts[rapnutri_downreg$Phospho_Site, ]
+sig_norm_counts_downreg <- normed_counts[rapnutri_downreg$Phospho_Site, ]
 
 sig_norm_counts_downreg <- as.data.frame(sig_norm_counts_downreg)
 sig_norm_counts_downreg <- rownames_to_column(sig_norm_counts_downreg, var = "Phospho_Site")
@@ -320,16 +259,16 @@ ggsave("rapnutriDEdownreg4.png", width=8.5, height=7, dpi=300)
 
 
 #UPregulated phosphopeptides
-rapnutri_upreg <- filter(Rapnutri_res_all, log2FoldChange >= 1.00, padj <= 0.05)
+rapnutri_upreg <- filter(res_all, log2FoldChange >= 1.00, padj <= 0.05)
 rapnutri_upreg <- arrange(rapnutri_upreg, padj)
 
 #export significantly upreg phosphopeptides
 write.csv(row.names(rapnutri_upreg), "phospho_Rap_nutri_sig_upreg.csv")
 
-#normalized_Rapnutri_counts <- rownames_to_column(normalized_Rapnutri_counts, var = "Phospho_Site") 
+#normed_counts <- rownames_to_column(normed_counts, var = "Phospho_Site") 
 rapnutri_upreg <- rownames_to_column(rapnutri_upreg, var = "Phospho_Site") 
 
-sig_norm_counts_upreg <- normalized_Rapnutri_counts[rapnutri_upreg$Phospho_Site, ]
+sig_norm_counts_upreg <- normed_counts[rapnutri_upreg$Phospho_Site, ]
 
 sig_norm_counts_upreg <- as.data.frame(sig_norm_counts_upreg)
 sig_norm_counts_upreg <- rownames_to_column(sig_norm_counts_upreg, var = "Phospho_Site")
@@ -390,16 +329,15 @@ volc_downreg <- inner_join(volc_downreg, Rapnutri_meta_new, by = "sample_name")
 
 
 #VOLCANO PLOT
-library(EnhancedVolcano)
 allDE<- rbind(top_20_downreg,top_20_upreg)
 
-Rapnutri_res_all <- rownames_to_column(Rapnutri_res_all, var = "Phospho_Site")
-Rapnutri_res_all <- arrange(Rapnutri_res_all, padj)
+res_all <- rownames_to_column(res_all, var = "Phospho_Site")
+res_all <- arrange(res_all, padj)
 
 
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$Phospho_Site,
-                selectLab = Rapnutri_res_all$Phospho_Site[1:20],
+EnhancedVolcano(res_all,
+                lab = res_all$Phospho_Site,
+                selectLab = res_all$Phospho_Site[1:20],
                 x="log2FoldChange",
                 y="pvalue",
                 pCutoff = 0.05,
@@ -418,7 +356,7 @@ EnhancedVolcano(Rapnutri_res_all,
                 legendPosition = "none")
 ggsave("RapnutriEVolc_highres1.png", width=7, height=7, dpi=300)
 
-EnhancedVolcano(Rapnutri_res_all,
+EnhancedVolcano(res_all,
                 lab = NA,
                 x="log2FoldChange",
                 y="pvalue",
@@ -436,8 +374,8 @@ EnhancedVolcano(Rapnutri_res_all,
 ggsave("RapnutriEVolcnolab_highres1.png", width=7, height=7, dpi=300)
 
 
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$Phospho_Site,
+EnhancedVolcano(res_all,
+                lab = res_all$Phospho_Site,
                 selectLab = 'CDCP1 Ser797',
                 x="log2FoldChange",
                 y="pvalue",
@@ -468,8 +406,8 @@ write.table(intersection_sig_v_hippo, file="phospho_Rap_nutri_v_control_HIPPO_in
 
 
 #MTOR intermediates
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$Phospho_Site,
+EnhancedVolcano(res_all,
+                lab = res_all$Phospho_Site,
                 selectLab = c('EIF4EBP1 Ser65', 'EIF4B Ser422'),
                 x="log2FoldChange",
                 y="pvalue",
@@ -488,8 +426,8 @@ EnhancedVolcano(Rapnutri_res_all,
 ggsave("Rapnutri_Volcnolab_FCcutoff_1_p_val_0.05_mTOR_intermediates.png", width=7, height=7, dpi=300)
 
 #HIPPO intermediates
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$Phospho_Site,
+EnhancedVolcano(res_all,
+                lab = res_all$Phospho_Site,
                 selectLab = intersection_sig_v_hippo,
                 x="log2FoldChange",
                 y="pvalue",
@@ -510,14 +448,7 @@ ggsave("Rapnutri_Volcnolab_FCcutoff_1_p_val_0.05_HIPPO_intermediates.png", width
 
 #############################################################################################
 #Figure 2 volcano plots (labels of mTOR- and HIPPO-associated genes)
-library(data.table) # Not necessary but super-useful
-library(ggrepel)    # This is to avoid labels overalapping each other
-library(ggplot2)
-
 #import data
-mtorc1_tx_down_reg_mtor_hippo_rankings <- read.csv('~/Desktop/Desktop Files/Phosphoproteomics/Keith_pubtator_analysis/mtorc1_tx_down-reg_mtor_hippo_rankings.csv', row.names = 1)
-mtorc1_tx_up_reg_mtor_hippo_rankings <- read.csv('~/Desktop/Desktop Files/Phosphoproteomics/Keith_pubtator_analysis/mtorc1_tx_up-reg_mtor_hippo_rankings.csv', row.names = 1)
-
 mtorc1_tx_down_reg_mtor_hippo_rankings_sort_mtor <- arrange(mtorc1_tx_down_reg_mtor_hippo_rankings, mtor) #sort the mTOR rankings
 mtorc1_tx_down_reg_mtor_hippo_rankings_sort_mtor <- select(mtorc1_tx_down_reg_mtor_hippo_rankings_sort_mtor, symbol, mtor) #select just the desired columns
 mtorc1_tx_down_reg_mtor_hippo_rankings_sort_mtor <- filter(mtorc1_tx_down_reg_mtor_hippo_rankings_sort_mtor, !is.na(mtor)) #get rid of the rows that don't have a ranking
@@ -554,13 +485,13 @@ mtorc1_tx_merged_HIPPO_genes_all <- rbind(mtorc1_tx_down_reg_mtor_hippo_rankings
 mtorc1_tx_merged_HIPPO_genes_all_2 <- arrange(mtorc1_tx_merged_HIPPO_genes_all, hippo) #sort the HIPPO rankings
 
 #append the log2FC and pvalues
-mtorc1_tx_merged_mtor_genes_all_3 <- left_join(x = mtorc1_tx_merged_mtor_genes_all_2, y = Rapnutri_res_all, by = "symbol")
-mtorc1_tx_merged_HIPPO_genes_all_3 <- left_join(x = mtorc1_tx_merged_HIPPO_genes_all_2, y = Rapnutri_res_all, by = "symbol")
+mtorc1_tx_merged_mtor_genes_all_3 <- left_join(x = mtorc1_tx_merged_mtor_genes_all_2, y = res_all, by = "symbol")
+mtorc1_tx_merged_HIPPO_genes_all_3 <- left_join(x = mtorc1_tx_merged_HIPPO_genes_all_2, y = res_all, by = "symbol")
 
 
 ## mTOR ranked gene list
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$symbol,
+EnhancedVolcano(res_all,
+                lab = res_all$symbol,
                 selectLab = mtorc1_tx_merged_mtor_genes_2$symbol[1:20],
                 x="log2FoldChange",
                 y="pvalue",
@@ -633,8 +564,8 @@ EnhancedVolcano(mtorc1_tx_merged_mtor_genes_all_3,
 
 ggsave("Rapnutri_Volcnolab_FCcutoff_2_p_val_0.05_mTOR_associated_genes_unlabeled.png", width=7, height=7, dpi=300)
 
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$symbol,
+EnhancedVolcano(res_all,
+                lab = res_all$symbol,
                 selectLab = '', #mtorc1_tx_merged_mtor_genes$symbol[1:20],
                 x="log2FoldChange",
                 y="pvalue",
@@ -663,8 +594,8 @@ ggsave("Rapnutri_Volcnolab_FCcutoff_2_p_val_0.05_mTOR_associated_genes_backgroun
 
 
 ## HIPPO ranked gene list
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$symbol,
+EnhancedVolcano(res_all,
+                lab = res_all$symbol,
                 selectLab = mtorc1_tx_merged_HIPPO_genes_2$symbol[1:20],
                 x="log2FoldChange",
                 y="pvalue",
@@ -737,8 +668,8 @@ EnhancedVolcano(mtorc1_tx_merged_HIPPO_genes_all_3,
 
 ggsave("Rapnutri_Volcnolab_FCcutoff_2_p_val_0.05_HIPPO_associated_genes_unlabeled.png", width=7, height=7, dpi=300)
 
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$symbol,
+EnhancedVolcano(res_all,
+                lab = res_all$symbol,
                 selectLab = '', #mtorc1_tx_merged_mtor_genes$symbol[1:20],
                 x="log2FoldChange",
                 y="pvalue",
@@ -771,8 +702,8 @@ write.csv(mtorc1_tx_merged_mtor_genes_all_3, "mtorc1_tx_merged_mTOR_genes.csv")
 
 
 #volcano plot with the known mTOR intermediates (intersection_sig_v_mtor)
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$symbol,
+EnhancedVolcano(res_all,
+                lab = res_all$symbol,
                 selectLab = intersection_sig_v_mtor,
                 x="log2FoldChange",
                 y="pvalue",
@@ -800,8 +731,8 @@ EnhancedVolcano(Rapnutri_res_all,
 ggsave("Phospho_Rapnutri_Volcnolab_FCcutoff_2_p_val_0.05_mTOR_genes.png", width=7, height=7, dpi=300)
 
 #volcano plot with the known HIPPO intermediates (intersection_sig_v_hippo)
-EnhancedVolcano(Rapnutri_res_all,
-                lab = Rapnutri_res_all$symbol,
+EnhancedVolcano(res_all,
+                lab = res_all$symbol,
                 selectLab = intersection_sig_v_hippo,
                 x="log2FoldChange",
                 y="pvalue",
@@ -828,111 +759,3 @@ EnhancedVolcano(Rapnutri_res_all,
   )
 
 ggsave("Phospho_Rapnutri_Volcnolab_FCcutoff_2_p_val_0.05_HIPPO_genes.png", width=7, height=7, dpi=300)
-
-
-
-
-
-
-
-
-
-
-
-
-#############################################################################################
-#EXTRA NOTES
-#write.table(Rapnutri_res_all, file="/Users/holzergc/Desktop/RapnutriALL.csv")
-#write.table(Rapnutri_res_sig, file="/Users/holzergc/Desktop/RapnutriSIG.csv")
-
-
-#GO ANALYSIS
-# library(goseq)
-# 
-# Rapnutri_res_ALL <- arrange(Rapnutri_res_all, padj)
-# Rapnutri_res_ALL <- left_join(x = Rapnutri_res_ALL,y = grch38[,c("ensgene","symbol","description")], by = "symbol")
-# 
-# #add ensemble gene IDs that weren't converted
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H0YIS7'] <- 'ENSG00000161939'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P16402'] <- 'ENSG00000124575'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q02952'] <- 'ENSG00000131016.'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q147U1'] <- 'ENSG00000196605.'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='QARS1'] <- 'ENSG00000172053'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='B7Z6N1'] <- 'ENSP00000222329'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='MACROH2A1'] <- 'ENSG00000113648'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='O43379-4'] <- 'ENSP00000384792'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H2AX'] <- 'ENSG00000188486'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='H13'] <- 'ENSG00000124575'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P16402'] <- 'ENSG00000124575'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59FP3'] <- 'ENSP00000307908'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q02952'] <- 'ENSP00000253332' #swiss-prot ID
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='O43379'] <- 'ENSG00000075702' #uniprotKB
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q59GA1'] <- 'ENSP00000371626' #trembl ID
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='GAGE4'] <- 'ENSP00000371133'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='PABIR1'] <- 'ENSG00000187866'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='A0A384N6H1'] <- 'ENSG00000167658'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='Q53GD7'] <- 'ENSP00000344149'
-# Rapnutri_res_ALL$ensgene[Rapnutri_res_ALL$symbol=='P07910'] <- 'ENSP00000451291'
-# 
-# #filter all the phosphopeptides that don't have a valid ENSEMBLE ID
-# Rapnutri_res_ALL <- filter(Rapnutri_res_ALL, !is.na(x = Rapnutri_res_ALL$ensgene)) #losing some phosphopeptides that are not convertable to ensgene IDs
-# 
-# #top 50 that have ensemble gene id's
-# Rapnutri_res_ALL <- Rapnutri_res_ALL[1:50,]
-# 
-# Rapnutri_res_ALL<-Rapnutri_res_ALL[!duplicated(Rapnutri_res_ALL$ensgene), ]
-# Rapnutri_res_ALL<-data_frame(Rapnutri_res_ALL)
-# 
-# 
-# diff<-Rapnutri_res_ALL
-# diff<-mutate(diff, de= padj<=0.05 & abs(log2FoldChange)>=0)
-# 
-# diff<-dplyr::select(diff, ensgene, de)
-# diff1<-diff
-# diff1<-diff1 %>% mutate_all(na_if,"TRUE")
-# diff1[is.na(diff1)] <- 1
-# 
-# #remove duplicate rownames
-# #diff2<-diff1[!duplicated(diff1$ensgene), ]
-# 
-# #important step
-# genes <- as.integer(Rapnutri_res_ALL$padj <= 0.05 & abs(Rapnutri_res_ALL$log2FoldChange)>=0 & !is.na(Rapnutri_res_ALL$padj)) 
-# names(genes)<-diff1$ensgene
-# 
-# #genes<-data_frame(genes)
-# #filter(genes, !is.na())
-# #rownames(genes)<-diff1$ensgene
-# #genes<-rownames_to_column(genes, var="ensgene")
-# #genes<-mutate(genes, ensgene=diff1$ensgene)
-# #genes<-dplyr::select(genes, -ensgene)
-# #genes<-data_frame(genes)
-# 
-# #not super useful but there nonetheless
-# genlens<-getlength(names(genes), "hg19", "ensGene")
-# names(genlens)<-diff1$ensgene
-# 
-# #useful again
-# pwf=nullp(genes,"hg19","ensGene")
-# head(pwf)
-# 
-# #GO analysis 
-# go.wall=goseq(pwf,"hg19","ensGene")
-# head(go.wall)
-# 
-# library(ggplot2)
-# colnames(go.wall)<-c("ID","over_represented_pvalue","under_represented_pvalue","Gene_Number","numInCat","GO_Term","Category")
-# b<-ggplot(go.wall[1:30,], aes(x=Gene_Number, y=GO_Term, size = Gene_Number, col = Category)) + geom_point(alpha=0.7)
-# b+ggtitle("Rap Nutri Gene Ontology")+xlab("Gene Number")+ylab("GO Term")+theme_bw()
-# ggsave("RapnutriGO_highres1.png", width=10, height=7, dpi=300)
-# ggsave("RapnutriGO_highres1_wide.png", width=12.5, height=7, dpi=300)
-
-
-#EXPORTING DATA FRAMES FOR SUPPLEMENTAL FIGURES
-
-#ACTsignormcounts <- ACTsignormcounts %>% relocate(Phospho_site, .before = symbol)
-#ACTsignormcounts <- ACTsignormcounts %>% relocate(ensgene, .after = symbol)
-#ACTsignormcounts$description <- NULL
-#write.csv(ACTsignormcounts,"Rap_v_control_normalized_counts.csv", row.names = FALSE)
-
