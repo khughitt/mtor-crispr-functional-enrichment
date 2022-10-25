@@ -134,7 +134,7 @@ uni2symbols <- function(uniprot_ids) {
 ## Nutrient-fed
 
 ```{r load_nutri}
-nutri <- read_tsv("../data/phospho-peptides-nutri.tsv", show_col_types = FALSE) %>%
+nutri <- read_tsv("../../data/phospho-peptides-nutri.tsv", show_col_types = FALSE) %>%
   rename(uniprot=`Master Protein Accessions`,
          mod=`Modifications in Master Proteins`)
 

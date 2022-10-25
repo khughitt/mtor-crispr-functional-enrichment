@@ -1,0 +1,9 @@
+r-base>=4.1
+bioconductor-deseq2
+bioconductor-enhancedvolcano>=1.12
+r-annotables
+r-ashr
+r-ggfortify
+r-tidyverse
+r-pheatmap
+r-rcolorbrewer
