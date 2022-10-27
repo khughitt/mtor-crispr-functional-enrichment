@@ -34,25 +34,24 @@ if (!dir.exists(out_dir)) {
 
 # load uniprot id mapping
 # source: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/by_organism/
-cnames <- c("uniprotkb_ac", "uniprotkb_id", "entrez_gene", "refseq", "gi", "pdb", "go", "uniref100",
-            "uniref90", "uniref50", "uniparc", "pir", "ncbi_taxon", "mim", "unigene", "pubmed", "embl",
-            "embl_cds", "ensembl", "ensembl_trs", "ensembl_pro", "additional_pubmed")
+mapping <- read_tsv("/data/ref/uniprot/2022_10/HUMAN_9606_idmapping.dat.gz", 
+                    col_names = c("uniprotkb_ac", "field", "value"))
 
-mapping <- read_tsv("/data/ref/uniprot/2022_10/HUMAN_9606_idmapping_selected.tab.gz", 
-                    col_names = cnames, col_types = cols(entrez_gene = col_character()))
+# limit to gene symbols and convert from long -> wide
+mapping <- mapping %>%
+  filter(field == 'Gene_Name') %>%
+  select(uniprotkb_ac, symbol=value)
 
 # for simplicity, we will drop multi-mapped entries
-# table(grepl(";", mapping$entrez_gene))
-#  FALSE   TRUE 
-# 205518    270 
+# table(duplicated(mapping$uniprotkb_ac))
+# FALSE   TRUE
+# 165820    129
+mapping <- mapping[!duplicated(mapping$uniprotkb_ac), ]
 
-# manually add CDCP1, etc. annotations for now..
-# - "CIC1" (Q96RK0) is not present in the nutri / phospho data
-# - "XRCC1" (P18887) is not present in the nutri / phospho data
-mapping[mapping$uniprotkb_ac == "A0A024R2T5", "entrez_gene"] <- "64866"
-
-mapping <- mapping[!grepl(";", mapping$entrez_gene), ]
-mapping$entrez_gene <- as.numeric(mapping$entrez_gene)
+# table(grepl(";", mapping$symbol) )
+#  FALSE   TRUE
+# 165806     14
+mapping <- mapping[!grepl(";", mapping$symbol), ]
 ```
 
 ```{r helper_funcs}
@@ -93,42 +92,6 @@ plot_volcano <- function(dat, title) {
     layout(shapes = list(vline(-1), vline(1))) %>%
     add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
 }
-
-# convert a single uniprot id 
-uni2symbol <- function(uniprot_id) {
-  if (uniprot_id %in% mapping$uniprotkb_ac) {
-    entrez_id <- mapping$entrez_gene[match(uniprot_id, mapping$uniprotkb_ac)]
-
-    if (!is.na(entrez_id)) {
-      return(grch38$symbol[match(entrez_id, grch38$entrez)])
-    } else {
-      return(NA)
-    }
-  } else {
-    return(NA)
-  }
-}
-
-# convert multiple uniprot ids
-uni2symbols <- function(uniprot_ids) {
-  all_symbols <- c()
-
-  for(ids in uniprot_ids) {
-    uniprot_ids_vec <- unlist(str_split(ids, "; "))
-
-    symbols <- uni2symbol(uniprot_ids_vec[1])
-
-    for (i in 2:length(uniprot_ids_vec)) {
-      symbols <- c(symbols, uni2symbol(uniprot_ids_vec[i]))
-    }
-
-    symbols <- unique(symbols[!is.na(symbols)])
-    
-    all_symbols <- c(all_symbols, paste0(symbols, collapse = "; "))
-  }
-
-  return (all_symbols)
-}
 ```
 
 ## Nutrient-fed
@@ -137,6 +100,12 @@ uni2symbols <- function(uniprot_ids) {
 nutri <- read_tsv("../../data/phospho-peptides-nutri.tsv", show_col_types = FALSE) %>%
   rename(uniprot=`Master Protein Accessions`,
          mod=`Modifications in Master Proteins`)
+
+# add gene symbols
+nutri$symbol <- mapping$symbol[match(nutri$uniprot, mapping$uniprotkb_ac)]
+
+nutri <- nutri %>%
+  select(uniprot, symbol, everything())
 
 dim(nutri)
 ```
@@ -147,14 +116,6 @@ phospho_mask <- grepl("Phospho", nutri$Modifications)
 table(phospho_mask)
 
 nutri <- nutri[phospho_mask, ]
-```
-
-```{r}
-# add gene symbols
-nutri$symbol <- uni2symbols(nutri$uniprot)
-
-nutri <- nutri %>%
-  select(uniprot, symbol, everything())
 ```
 
 ### ΔRPTOR
@@ -224,5 +185,10 @@ nutri_meak7 %>%
 
 ```{r session_info}
 sessionInfo()
+```
+
+```{r file_info}
+tools::md5sum("/data/ref/uniprot/2022_10/HUMAN_9606_idmapping.dat.gz")
+tools::md5sum("../../data/phospho-peptides-nutri.tsv")
 ```
 
