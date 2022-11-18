@@ -1,3 +1,6 @@
-unused
-output
+.snakemake
+.RData
 *.html
+archive
+output
+config.yml

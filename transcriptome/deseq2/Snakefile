@@ -95,7 +95,7 @@ rule create_batch_adjusted_counts:
         os.path.join(config['output_dir'], "expr/batch-adjusted/data.tsv"),
         os.path.join(config['output_dir'], "expr/batch-adjusted/column-metadata.tsv")
     script:
-        "scripts/create_limma_batch_adjusted_counts.R"
+        "scripts/create_batch_adjusted_counts.R"
 
 rule combine_counts:
     input:
