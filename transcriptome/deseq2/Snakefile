@@ -1,0 +1,143 @@
+"""
+Nguyen22 CRISPR-guided Multi-omics: RNA-Seq differential expression & functional enrichment
+V. Keith Hughitt
+
+Uses the HISAT2 mapped reads to perform:
+
+- differential expression analysis
+- functional enrichment analysis
+- sample visualization
+"""
+import os
+import pandas as pd
+
+configfile: "config/config.yml"
+
+# wildcards
+knockouts = ['m7_d5', 'Rap_d1', 'Ric_d5', 'v_d4']
+nutrients = ['starved', 'nutri']
+batches = ['1', '2', '3', '4']
+
+# deseq contrasts
+contrasts = ['condition_m7_starved_vs_m7_nutri',
+             'condition_m7_nutri_vs_v_nutri',
+             'condition_m7_starved_vs_v_starved',
+             'condition_Rap_nutri_vs_v_nutri', 
+             'condition_Rap_starved_vs_v_starved',
+             'condition_Rap_nutri_vs_m7_nutri',
+             'condition_Rap_starved_vs_m7_starved',
+             'condition_Ric_nutri_vs_m7_nutri',
+             'condition_Ric_starved_vs_m7_starved',
+             'condition_Ric_nutri_vs_v_nutri',
+             'condition_Ric_starved_vs_v_starved',
+             'knockout_Rap_vs_m7', 'knockout_Ric_vs_m7', 'knockout_v_vs_m7',
+             'knockout_Ric_vs_Rap', 'knockout_v_vs_Rap', 'knockout_v_vs_Ric',
+             'nutrient_nutri_vs_starved']
+
+rule all:
+    input:
+        os.path.join(config['output_dir'], "deseq2/summary.tsv"),
+        os.path.join(config['output_dir'], "fig/raw/raw-counts-sample-umap.png"),
+        os.path.join(config['output_dir'], "fig/batch-adjusted/batch-adjusted-counts-sample-umap.png"),
+        expand(os.path.join(config['output_dir'], "fgsea/{contrast}.tsv"), contrast=contrasts)
+
+rule fgsea:
+    input:
+        os.path.join(config['output_dir'], "deseq2/{contrast}.tsv")
+    output:
+        os.path.join(config['output_dir'], "fgsea/{contrast}.tsv")
+    params:
+        gmt=config['msigdb_gmt']
+    script:
+        "scripts/run_fgsea.R"
+
+rule deseq2:
+    input:
+        os.path.join(config['output_dir'], "expr/raw/data.tsv"),
+        os.path.join(config['output_dir'], "expr/raw/column-metadata.tsv"),
+    output:
+        expand(os.path.join(config['output_dir'], "deseq2/{contrast}.tsv"), contrast=contrasts),
+        os.path.join(config['output_dir'], "deseq2/summary.tsv")
+    script:
+        "scripts/run_deseq2.R"
+
+rule batch_adj_count_figures:
+    input:
+        os.path.join(config['output_dir'], "expr/batch-adjusted/data.tsv"),
+        os.path.join(config['output_dir'], "expr/batch-adjusted/column-metadata.tsv")
+    output:
+        os.path.join(config['output_dir'], "fig/batch-adjusted/batch-adjusted-counts-library-sizes.png"),
+        os.path.join(config['output_dir'], "fig/batch-adjusted/batch-adjusted-counts-sample-pca.png"),
+        os.path.join(config['output_dir'], "fig/batch-adjusted/batch-adjusted-counts-sample-umap.png"),
+        os.path.join(config['output_dir'], "fig/batch-adjusted/batch-adjusted-counts-sample-heatmap-pearson.png"),
+        os.path.join(config['output_dir'], "fig/batch-adjusted/batch-adjusted-counts-sample-heatmap-spearman.png")
+    script:
+        "scripts/plot_samples.R"
+
+rule raw_count_figures:
+    input:
+        os.path.join(config['output_dir'], "expr/raw/data.tsv"),
+        os.path.join(config['output_dir'], "expr/raw/column-metadata.tsv")
+    output:
+        os.path.join(config['output_dir'], "fig/raw/raw-counts-library-sizes.png"),
+        os.path.join(config['output_dir'], "fig/raw/raw-counts-sample-pca.png"),
+        os.path.join(config['output_dir'], "fig/raw/raw-counts-sample-umap.png"),
+        os.path.join(config['output_dir'], "fig/raw/raw-counts-sample-heatmap-pearson.png"),
+        os.path.join(config['output_dir'], "fig/raw/raw-counts-sample-heatmap-spearman.png")
+    script:
+        "scripts/plot_samples.R"
+
+rule create_batch_adjusted_counts:
+    input:
+        os.path.join(config['output_dir'], "expr/raw/data.tsv"),
+        os.path.join(config['output_dir'], "expr/raw/column-metadata.tsv")
+    output:
+        os.path.join(config['output_dir'], "expr/batch-adjusted/data.tsv"),
+        os.path.join(config['output_dir'], "expr/batch-adjusted/column-metadata.tsv")
+    script:
+        "scripts/create_limma_batch_adjusted_counts.R"
+
+rule combine_counts:
+    input:
+        expand(os.path.join(config['output_dir'], "subread/{knockout}_{nutrient}_{batch}_all_trimmed.txt"),
+               knockout=knockouts, nutrient=nutrients, batch=batches)
+    output:
+        os.path.join(config['output_dir'], "expr/raw/data.tsv"),
+        os.path.join(config['output_dir'], "expr/raw/column-metadata.tsv")
+    run:
+        dfs = [pd.read_csv(x, sep='\t', skiprows=1) for x in input]
+
+        combined = pd.concat([dfs[0].Geneid] + [x.iloc[:, -1] for x in dfs], axis=1)
+        combined.columns = [os.path.basename(x).replace("_all_trimmed_sorted.bam", "") for x in combined.columns]
+        combined.to_csv(output[0], sep="\t", index=False)
+
+        mdata_rows = []
+
+        for sample_name in combined.columns[1:]:
+            parts = sample_name.split('_')
+
+            mdata_rows.append({
+                "knockout": parts[0],
+                "nutrient": parts[2],
+                "batch": parts[3]
+            })
+
+        sample_metadata = pd.DataFrame.from_dict(mdata_rows)
+        sample_metadata.to_csv(output[1], sep="\t", index=False)
+
+rule count_reads:
+    input:
+        os.path.join(config['hisat2_dir'], "{knockout}_{nutrient}_{batch}_all_trimmed_sorted.bam")
+    output:
+        os.path.join(config['output_dir'], "subread/{knockout}_{nutrient}_{batch}_all_trimmed.txt")
+    shell:
+        """
+        featureCounts \
+            -p \
+            -T {threads} \
+            -t exon \
+            -g gene_id \
+            -a {config[ref_gtf]} \
+            -o {output} \
+            {input}
+        """
