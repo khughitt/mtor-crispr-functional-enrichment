@@ -1,0 +1,109 @@
+"""
+Nguyen22 CRISPR-guided Multi-omics: RNA-Seq transcript abundance estimation pipeline
+V. Keith Hughitt
+"""
+import os
+
+configfile: "config/config.yml"
+
+# Sample ids
+samples = ['Rap_d1_starved_2', 'Rap_d1_starved_4', 'Rap_d1_nutri_2', 'Rap_d1_starved_1',
+           'Rap_d1_starved_3', 'Rap_d1_nutri_3', 'Ric_d5_nutri_2', 'Rap_d1_nutri_4',
+           'Ric_d5_nutri_1', 'Rap_d1_nutri_1']
+
+# wildcards
+cell_lines = ['v_d4', 'm7_d5', 'Rap_d1', 'Ric_d5']
+nutrients = ['nutri', 'starved']
+replicates = ['1', '2', '3', '4']
+
+rule all:
+    input:
+        expand(os.path.join(config['output_dir'], 'hisat2', '{cell}_{nutrient}_{replicate}_all_trimmed_sorted.bam'),
+                  cell=cell_lines, nutrient=nutrients, replicate=replicates)
+
+#samtools view -b {input} > {output}
+rule samtools_bam:
+    input:
+        os.path.join(config['output_dir'], 'hisat2', "{cell}_{nutrient}_{replicate}_all_trimmed.sam")
+    output:
+        os.path.join(config['output_dir'], 'hisat2', "{cell}_{nutrient}_{replicate}_all_trimmed_sorted.bam")
+    shell:
+        """
+        samtools sort {input} -o {output}
+        """
+
+rule hisat2:
+    input:
+        r1=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R1_all_trimmed.fastq.gz"),
+        r2=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R2_all_trimmed.fastq.gz")
+    output:
+        os.path.join(config['output_dir'], 'hisat2', "{cell}_{nutrient}_{replicate}_all_trimmed.sam")
+    shell:
+        """
+        hisat2 \
+           -x {config[hisat2_index]} \
+           -1 {input.r1} \
+           -2 {input.r2} \
+           -p 4 \
+           --no-unal \
+           -S {output}
+        """
+
+rule fastqc_trimmed:
+    input:
+        r1=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R1_all_trimmed.fastq.gz"),
+        r2=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R2_all_trimmed.fastq.gz")
+    output:
+        os.path.join(config['output_dir'], 'fastqc', 'trimmed', '{cell}_{nutrient}_{replicate}_R1_all_trimmed_fastqc.html'),
+        os.path.join(config['output_dir'], 'fastqc', 'trimmed', '{cell}_{nutrient}_{replicate}_R1_all_trimmed_fastqc.zip'),
+        os.path.join(config['output_dir'], 'fastqc', 'trimmed', '{cell}_{nutrient}_{replicate}_R2_all_trimmed_fastqc.html'),
+        os.path.join(config['output_dir'], 'fastqc', 'trimmed', '{cell}_{nutrient}_{replicate}_R2_all_trimmed_fastqc.zip')
+    shell:
+        """
+        outdir=$(dirname {output[0]})
+
+        fastqc \
+            --noextract \
+            --quiet \
+            --outdir $outdir \
+            {input.r1} {input.r2}
+        """
+
+rule cutadapt:
+    input:
+        r1=os.path.join(config['fastq_dir'], "{cell}_{nutrient}_{replicate}_R1_all.fastq.gz"),
+        r2=os.path.join(config['fastq_dir'], "{cell}_{nutrient}_{replicate}_R2_all.fastq.gz")
+    output:
+        r1=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R1_all_trimmed.fastq.gz"),
+        r2=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R2_all_trimmed.fastq.gz")
+    shell:
+        """
+        cutadapt \
+            -o {output.r1} \
+            -p {output.r2} \
+            -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA \
+            -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
+            -q 20 \
+            --minimum-length 25 \
+            {input.r1} {input.r2}
+        """
+
+rule fastqc_raw:
+    input:
+        r1=os.path.join(config['fastq_dir'], "{cell}_{nutrient}_{replicate}_R1_all.fastq.gz"),
+        r2=os.path.join(config['fastq_dir'], "{cell}_{nutrient}_{replicate}_R2_all.fastq.gz")
+    output:
+        os.path.join(config['output_dir'], 'fastqc', 'untrimmed', '{cell}_{nutrient}_{replicate}_R1_all_fastqc.html'),
+        os.path.join(config['output_dir'], 'fastqc', 'untrimmed', '{cell}_{nutrient}_{replicate}_R1_all_fastqc.zip'),
+        os.path.join(config['output_dir'], 'fastqc', 'untrimmed', '{cell}_{nutrient}_{replicate}_R2_all_fastqc.html'),
+        os.path.join(config['output_dir'], 'fastqc', 'untrimmed', '{cell}_{nutrient}_{replicate}_R2_all_fastqc.zip')
+    shell:
+        """
+        outdir=$(dirname {output[0]})
+
+        fastqc \
+            --noextract \
+            --quiet \
+            --outdir $outdir \
+            {input.r1} {input.r2}
+        """

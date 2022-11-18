@@ -1,0 +1,9 @@
+# directory containing raw FASTQ files (ex. "m7_d5_nutri_1_R1_all.fastq.gz")
+fastq_dir: "/path/to/fastq"
+
+# directory to save outputs to
+output_dir: '/path/to/output'
+
+# location of HISAT2 reference genome (index prefix, excluding the ".1.ht2", portion.)
+# source: http://refgenomes.databio.org/v3/assets/splash/2230c535660fb4774114bfa966a62f823fdb6d21acf138d4/hisat2_index?tag=default 
+hisat2_index: "/data/ref/hisat2/grch38/refgenie/f54c7f1ca70d5975d8089e636f3ac9a1/2230c535660fb4774114bfa966a62f823fdb6d21acf138d4"

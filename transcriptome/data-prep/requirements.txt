@@ -1,0 +1,7 @@
+python>=3.9
+r-base>=4.1
+snakemake-minimal>=6.0
+hisat2>=2.2
+samtools>=1.15
+fastqc
+cutadapt
