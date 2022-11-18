@@ -32,6 +32,21 @@ if (!dir.exists(out_dir)) {
   dir.create(out_dir, recursive = TRUE, mode = '0755')
 }
 
+# load transcriptome differential expression results; will be used for comparison
+deseq_dir <- "/data/proj/mtorc3/rna-seq/deseq2"
+
+deseq_nutri <- list(
+  "rap" = read_tsv(file.path(deseq_dir, "condition_Rap_nutri_vs_v_nutri.tsv")),
+  "ric" = read_tsv(file.path(deseq_dir, "condition_Ric_nutri_vs_v_nutri.tsv")),
+  "m7" = read_tsv(file.path(deseq_dir, "condition_m7_nutri_vs_v_nutri.tsv"))
+)
+
+deseq_starved <- list(
+  "rap" = read_tsv(file.path(deseq_dir, "condition_Rap_starved_vs_v_starved.tsv")),
+  "ric" = read_tsv(file.path(deseq_dir, "condition_Ric_starved_vs_v_starved.tsv")),
+  "m7" = read_tsv(file.path(deseq_dir, "condition_m7_starved_vs_v_starved.tsv"))
+)
+
 # load uniprot id mapping
 # source: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/by_organism/
 mapping <- read_tsv("/data/ref/uniprot/2022_10/HUMAN_9606_idmapping.dat.gz", 
@@ -55,14 +70,14 @@ mapping <- mapping[!grepl(";", mapping$symbol), ]
 ```
 
 ```{r helper_funcs}
-plot_volcano <- function(dat, title) {
+plot_volcano <- function(dat, title, highlight_genes) {
   dat <- dat %>%
     mutate(log10pval=-log10(padj))
 
   # assign specific colors genes of interest to highlight
-  mtorc <- c("CDCP1", "KRT8", "PPP1R13L", "KIF1A", "CIC" )
-  mtorc1_unique <- c( "XRCC1", "FASN", "HDAC7")
-  mtorc3_unique <- c("PPP1R14A", "SIPA1L3")
+  # mtorc <- c("CDCP1", "KRT8", "PPP1R13L", "KIF1A", "CIC" )
+  # mtorc1_unique <- c( "XRCC1", "FASN", "HDAC7")
+  # mtorc3_unique <- c("PPP1R14A", "SIPA1L3")
 
   dat$group <- ifelse(dat$symbol %in% mtorc, "Shared", 
                    ifelse(dat$symbol %in% mtorc1_unique, "mTORC1",
@@ -98,8 +113,18 @@ plot_volcano <- function(dat, title) {
 
 ```{r load_nutri}
 nutri <- read_tsv("../../data/phospho-peptides-nutri.tsv", show_col_types = FALSE) %>%
-  rename(uniprot=`Master Protein Accessions`,
-         mod=`Modifications in Master Proteins`)
+  select(uniprot=`Master Protein Accessions`,
+         mod=Modifications,
+         mod_proteins=`Modifications in Master Proteins`, 
+         rap_log2ratio=`Abundance Ratio (log2): (Rap_del_1R) / (V_del_4R)`,
+         rap_padj=`Abundance Ratio Adj. P-Value: (Rap_del_1R) / (V_del_4R)`,
+         rap_pval=`Abundance Ratio P-Value: (Rap_del_1R) / (V_del_4R)`,
+         ric_log2ratio=`Abundance Ratio (log2): (Ric_del_SR) / (V_del_4R)`,
+         ric_padj=`Abundance Ratio Adj. P-Value: (Ric_del_SR) / (V_del_4R)`,
+         ric_pval=`Abundance Ratio P-Value: (Ric_del_SR) / (V_del_4R)`,
+         m7_log2ratio=`Abundance Ratio (log2): (M7_del_SR) / (V_del_4R)`,
+         m7_padj=`Abundance Ratio Adj. P-Value: (M7_del_SR) / (V_del_4R)`,
+         m7_pval=`Abundance Ratio P-Value: (M7_del_SR) / (V_del_4R)`)
 
 # add gene symbols
 nutri$symbol <- mapping$symbol[match(nutri$uniprot, mapping$uniprotkb_ac)]
@@ -112,7 +137,7 @@ dim(nutri)
 
 ```{r}
 # limit to phospho entries
-phospho_mask <- grepl("Phospho", nutri$Modifications)
+phospho_mask <- grepl("Phospho", nutri$mod)
 table(phospho_mask)
 
 nutri <- nutri[phospho_mask, ]
@@ -122,11 +147,7 @@ nutri <- nutri[phospho_mask, ]
 
 ```{r nutri_rap}
 nutri_rap <- nutri %>%
-  select(uniprot,
-         symbol,
-         mod,
-         log2ratio=`Abundance Ratio (log2): (Rap_del_1R) / (V_del_4R)`,
-         padj=`Abundance Ratio Adj. P-Value: (Rap_del_1R) / (V_del_4R)`) %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, pval = rap_pval, padj = rap_padj) %>%
   filter(!is.na(padj))
 ```
 
@@ -138,6 +159,85 @@ nutri_rap %>%
   head(20)
 ```
 
+How many proteins are associated with multiple phospho sites?
+
+```{r}
+table(duplicated(nutri_rap$symbol))
+```
+
+Since the focus of this analysis is comparing the changes at the gene level, we will consider the
+most significant observation for each protein.
+
+```{r}
+nutri_rap <- nutri_rap %>%
+  group_by(symbol) %>%
+  arrange(pval) %>%
+  slice(1) %>%
+  ungroup()
+```
+
+Are there genes which were found to be differentially expressed in the ΔRPTOR transcriptome data,
+which also appear to encode proteins that are differentially phosphorylated?
+
+```{r}
+nutri_rap$tx_pval <- deseq_nutri[['rap']]$pvalue[match(nutri_rap$symbol, deseq_nutri[['rap']]$symbol)]
+nutri_rap$tx_padj <- deseq_nutri[['rap']]$padj[match(nutri_rap$symbol, deseq_nutri[['rap']]$symbol)]
+
+# since there are a large number of significant genes in the tx results, rather than simply looking
+# at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
+# be compared
+nutri_rap$phospho_pval_rank <- rank(nutri_rap$pval)
+nutri_rap$tx_pval_rank <- rank(nutri_rap$tx_pval)
+
+nutri_rap <- nutri_rap %>%
+  mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
+
+# genes with the highest significant across both modalities?
+nutri_rap %>%
+  arrange(average_pval_rank) %>%
+  head(20)
+```
+
+Plot of tx vs. phospho gene ranks?
+
+```{r}
+# first, create a filtered version of the table with only phospho sites that could be mapped to a
+# gene, and were observed in both datasets
+nutri_rap_filtered <- nutri_rap %>%
+  filter(!is.na(tx_pval) & !is.na(symbol))
+
+plot_ly(data = nutri_rap_filtered, 
+        x = ~pval, 
+        y = ~tx_pval,
+        type = 'scatter', 
+        mode = 'markers',
+        marker = list(size = 5),
+        text = ~paste("<b>", uniprot, "</b><br><br>", 
+                      "<b>", symbol, "</b><br><br>", "<extra></extra>")) %>%
+  layout(title = "Phospho vs. Tx P-value Comparison") %>%
+  add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
+```
+
+```{r}
+# same thing, but compare p-value rankings..
+plot_ly(data = nutri_rap_filtered, 
+        x = ~phospho_pval_rank, 
+        y = ~tx_pval_rank,
+        type = 'scatter', 
+        mode = 'markers',
+        marker = list(size = 5),
+        text = ~paste("<b>", uniprot, "</b><br><br>", 
+                      "<b>", symbol, "</b><br><br>", "<extra></extra>")) %>%
+  layout(title = "Phospho vs. Tx P-value Ranking Comparison") %>%
+  add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
+```
+
+Which genes appear to be significant in both datasets?
+
+```{r}
+nutri_rap_filtered %>%
+  filter(padj <= 0.01 & tx_padj <= 0.01)
+```
 
 ```{r raptor_nutri_volcano_plot}
 plot_volcano(nutri_rap, "ΔRPTOR Phospho Differential Abundance")
@@ -147,11 +247,7 @@ plot_volcano(nutri_rap, "ΔRPTOR Phospho Differential Abundance")
 
 ```{r nutri_meak7}
 nutri_meak7 <- nutri %>%
-  select(uniprot,
-         symbol,
-         mod,
-         log2ratio=`Abundance Ratio (log2): (M7_del_SR) / (V_del_4R)`,
-         padj=`Abundance Ratio Adj. P-Value: (M7_del_SR) / (V_del_4R)`) %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = m7_log2ratio, padj = m7_padj) %>%
   filter(!is.na(padj))
 ```
 
