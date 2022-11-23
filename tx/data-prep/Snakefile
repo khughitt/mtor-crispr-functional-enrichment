@@ -21,32 +21,28 @@ rule all:
         expand(os.path.join(config['output_dir'], 'hisat2', '{cell}_{nutrient}_{replicate}_all_trimmed_sorted.bam'),
                   cell=cell_lines, nutrient=nutrients, replicate=replicates)
 
-#samtools view -b {input} > {output}
-rule samtools_bam:
-    input:
-        os.path.join(config['output_dir'], 'hisat2', "{cell}_{nutrient}_{replicate}_all_trimmed.sam")
-    output:
-        os.path.join(config['output_dir'], 'hisat2', "{cell}_{nutrient}_{replicate}_all_trimmed_sorted.bam")
-    shell:
-        """
-        samtools sort {input} -o {output}
-        """
-
 rule hisat2:
     input:
         r1=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R1_all_trimmed.fastq.gz"),
         r2=os.path.join(config['output_dir'], "cutadapt", "{cell}_{nutrient}_{replicate}_R2_all_trimmed.fastq.gz")
     output:
-        os.path.join(config['output_dir'], 'hisat2', "{cell}_{nutrient}_{replicate}_all_trimmed.sam")
+        os.path.join(config['output_dir'], 'hisat2', "{cell}_{nutrient}_{replicate}_all_trimmed_sorted.bam")
     shell:
         """
+        tmp="{output}"
+        tmp=${{tmp/.bam/.sam}}
+
         hisat2 \
            -x {config[hisat2_index]} \
            -1 {input.r1} \
            -2 {input.r2} \
            -p 4 \
            --no-unal \
-           -S {output}
+           -S $tmp
+
+        samtools sort $tmp -o {output}
+
+        rm $tmp
         """
 
 rule fastqc_trimmed:
