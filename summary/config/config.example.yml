@@ -1,0 +1,19 @@
+# Locations of:
+# 1. RNA-Seq outputs from included DESEeq2 pipeline (pipeline in ../tx/deseq2)
+# 2. Phosphoproteomics Proteome Discoverer differential abundance data (data in ../data)
+data_dirs:
+  rna: "/path/to/rna-seq"
+  phospho: "../data"
+
+# desired location to save output to
+output_dir: "/path/to/output"
+
+# uniprot id mapping ("HUMAN_9606_idmapping.dat.gz")
+# source: https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/by_organism/
+uniprot_mapping: "/data/ref/uniprot/2022_10/HUMAN_9606_idmapping.dat.gz"
+
+# Maximum number of rows to show for table previews?
+table_max_rows: 100
+
+# When showing volcano plots, how many significant genes should be highlighted from each complex?
+volcano_num_sig: 50

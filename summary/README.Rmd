@@ -23,6 +23,9 @@ In order to attempt to understand how things are changing across the different l
 and regulation, proteins described in the phosphoproteome data are mapped to putative genes using an
 ID mapping from Uniprot.
 
+_Note_: in the summary tables below, values less than 1e-11 will be printined as "0"'s. For the
+precise values, refer to the actual results tables provided in a separate supplemental file.
+
 # Methods & Results
 
 ## Setup
@@ -32,8 +35,11 @@ library(annotables)
 library(plotly)
 library(tidyverse)
 library(yaml)
+library(RColorBrewer)
+library(openxlsx)
 
-source("R/helper.R")
+# be more precise when printing summary tables
+options(digits = 10)
 
 # plot opts
 knitr::opts_chunk$set(
@@ -42,6 +48,83 @@ knitr::opts_chunk$set(
   fig.retina = 1,
   dpi = 192
 )
+```
+
+```{r helper_funcs}
+#
+# plot_volcano
+#
+# Helper function to generate an interactive volcano plot
+#
+plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, title, data_type = "tx") {
+  dat <- dat %>%
+    mutate(log10pval = -log10(padj))
+
+  # assign specific colors to highlight genes significantly modulated in each of the mTOR complex
+  # knockouts
+  mtorc1_unique <- mtorc1_genes[!mtorc1_genes %in% c(mtorc2_genes, mtorc3_genes)]
+  mtorc2_unique <- mtorc2_genes[!mtorc2_genes %in% c(mtorc1_genes, mtorc3_genes)]
+  mtorc3_unique <- mtorc3_genes[!mtorc3_genes %in% c(mtorc1_genes, mtorc2_genes)]
+
+  shared_12 <- intersect(mtorc1_genes, mtorc2_genes)
+  shared_13 <- intersect(mtorc1_genes, mtorc3_genes)
+  shared_23 <- intersect(mtorc2_genes, mtorc3_genes)
+  shared_123 <- intersect(mtorc1_genes, shared_23)
+
+  dat$group <- ifelse(dat$symbol %in% shared_123, "mTORC1-3",
+               ifelse(dat$symbol %in% shared_12, "mTORC1/2",
+               ifelse(dat$symbol %in% shared_13, "mTORC1/3",
+               ifelse(dat$symbol %in% shared_23, "mTORC2/3",
+               ifelse(dat$symbol %in% mtorc1_unique, "mTORC1",
+               ifelse(dat$symbol %in% mtorc2_unique, "mTORC2",
+               ifelse(dat$symbol %in% mtorc3_unique, "mTORC3", "Other")))))))
+
+  # assign colors
+  pal <- brewer.pal(8, "Set2")
+
+  pal[1] <- "#25C271"
+  pal[2] <- "#EAAD72"
+  pal[7] <- "#1CADE0"
+
+  names(pal) <- c("mTORC1", "mTORC3", "mTORC2", "mTORC1/2", "mTORC1/3", "mTORC2/3", "mTORC1-3", "Other")
+
+  # helper func to draw vertical lines
+  # https://stackoverflow.com/a/34097929/554531
+  vline <- function(x = 0, color = "red") {
+    list(type = "line", y0 = 0, y1 = 1, yref = "paper", x0 = x, x1 = x, line = list(color = color,
+                                                                                    dash = "dashed"))
+  }
+
+  if (data_type == "tx") {
+    plot_ly(data = dat,
+            x = ~log2FoldChange,
+            y = ~log10pval,
+            color = ~group,
+            colors = pal,
+            type = 'scatter',
+            mode = 'markers',
+            marker = list(size = 5),
+            text = ~paste("<b>", ensgene, "</b><br><br>",
+                          "<b>", symbol, "</b><br><br>", "<extra></extra>")) %>%
+      layout(title = title) %>%
+      layout(shapes = list(vline(-1), vline(1))) %>%
+      add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
+  } else {
+    plot_ly(data = dat,
+            x = ~log2ratio,
+            y = ~log10pval,
+            color = ~group,
+            colors = pal,
+            type = 'scatter',
+            mode = 'markers',
+            marker = list(size = 5),
+            text = ~paste("<b>", uniprot, "</b><br><br>",
+                          "<b>", symbol, "</b><br><br>", "<extra></extra>")) %>%
+      layout(title = title) %>%
+      layout(shapes = list(vline(-1), vline(1))) %>%
+      add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
+  }
+}
 ```
 
 ```{r load_config}
@@ -189,7 +272,7 @@ phospho_starved <- read_tsv(phospho_starved_infile, show_col_types = FALSE) %>%
 
 # log2 transform abundance ratios to be consistent with the nutrient-fed sample results
 phospho_starved <- phospho_starved %>%
-  mutate(rap_log2ratio = log2(rap_ratio), 
+  mutate(rap_log2ratio = log2(rap_ratio),
          ric_log2ratio = log2(ric_ratio),
          meak7_log2ratio = log2(meak7_ratio)) %>%
   select(-rap_ratio, -ric_ratio, -meak7_ratio)
@@ -218,6 +301,79 @@ phospho_starved <- phospho_starved %>%
 dim(phospho_starved)
 ```
 
+```{r created_simplified_phospho_results}
+# create simplified versions of Proteome Discoverer results
+phospho_nutri_rap_full <- phospho_nutri %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, pval = rap_pval, padj = rap_padj) %>%
+  filter(!is.na(padj))
+
+phospho_starved_rap_full <- phospho_starved %>%
+  # select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, pval = rap_pval, padj = rap_padj) %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, padj = rap_padj) %>%
+  filter(!is.na(padj))
+
+phospho_nutri_ric_full <- phospho_nutri %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, pval = ric_pval, padj = ric_padj) %>%
+  filter(!is.na(padj))
+
+phospho_starved_ric_full <- phospho_starved %>%
+  # select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, pval = ric_pval, padj = ric_padj) %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, padj = ric_padj) %>%
+  filter(!is.na(padj))
+
+phospho_nutri_meak7_full <- phospho_nutri %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, pval = meak7_pval, padj = meak7_padj) %>%
+  filter(!is.na(padj))
+
+phospho_starved_meak7_full <- phospho_starved %>%
+  # select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, pval = meak7_pval, padj = meak7_padj) %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, padj = meak7_padj) %>%
+  filter(!is.na(padj))
+```
+
+```{r collapse_phospho_sites}
+# For each result set, create a table of the most significant phosphorylation sites associated with
+# each gene
+phospho_nutri_rap <- phospho_nutri_rap_full %>%
+  group_by(symbol) %>%
+  arrange(pval) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_starved_rap <- phospho_starved_rap_full %>%
+  group_by(symbol) %>%
+  # arrange(pval) %>%
+  arrange(padj) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_nutri_ric <- phospho_nutri_ric_full %>%
+  group_by(symbol) %>%
+  arrange(pval) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_starved_ric <- phospho_starved_ric_full %>%
+  group_by(symbol) %>%
+  # arrange(pval) %>%
+  arrange(padj) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_nutri_meak7 <- phospho_nutri_meak7_full %>%
+  group_by(symbol) %>%
+  arrange(pval) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_starved_meak7 <- phospho_starved_meak7_full %>%
+  group_by(symbol) %>%
+  # arrange(pval) %>%
+  arrange(padj) %>%
+  slice(1) %>%
+  ungroup()
+```
+
 ## ΔRPTOR nutrient-fed
 
 ### Transcriptome (ΔRPTOR nutrient-fed)
@@ -227,11 +383,29 @@ Genes with the highest differential expression between ΔRPTOR and control?
 ```{r tx_nutri_rap}
 deseq_nutri[["rap"]] %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
-```{r raptor_nutri_volcano_plot}
-plot_tx_volcano(deseq_nutri[["rap"]], "ΔRPTOR Transcriptome Differential Expression (nutrient-fed)")
+```{r raptor_nutri_tx_volcano_plot}
+# significant genes for each complex knockout
+mtorc1_tx_nutri_genes <- deseq_nutri[["rap"]] %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc2_tx_nutri_genes <- deseq_nutri[["ric"]] %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc3_tx_nutri_genes <- deseq_nutri[["meak7"]] %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+plot_volcano(deseq_nutri[["rap"]],
+             mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
+             "ΔRPTOR Transcriptome Differential Expression (nutrient-fed)")
 ```
 
 ### Phosphoproteome (ΔRPTOR nutrient-fed)
@@ -239,13 +413,9 @@ plot_tx_volcano(deseq_nutri[["rap"]], "ΔRPTOR Transcriptome Differential Expres
 Phospho sites with the highest differential abundance between ΔRPTOR and control?
 
 ```{r phospho_nutri_rap_top_hits}
-phospho_nutri_rap_full <- phospho_nutri %>%
-  select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, pval = rap_pval, padj = rap_padj) %>%
-  filter(!is.na(padj))
-
 phospho_nutri_rap_full %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 How many proteins are associated with multiple phosphorylation sites?
@@ -254,18 +424,26 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_nutri_rap_full$symbol))
 ```
 
-Create a table of the most significant phosphorylation sites associated with each gene.
-
-```{r phospho_nutri_rap_collapse_sites}
-phospho_nutri_rap <- phospho_nutri_rap_full %>%
-  group_by(symbol) %>%
-  arrange(pval) %>%
-  slice(1) %>%
-  ungroup()
-```
-
 ```{r raptor_nutri_volcano_plot}
-plot_phospho_volcano(phospho_nutri_rap, "ΔRPTOR Phosphoproteome Differential Abundance (nutrient-fed)")
+# significant genes for each complex knockout
+mtorc1_phospho_nutri_genes <- phospho_nutri_rap %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc2_phospho_nutri_genes <- phospho_nutri_ric %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc3_phospho_nutri_genes <- phospho_nutri_meak7 %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+plot_volcano(phospho_nutri_rap,
+             mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
+             "ΔRPTOR Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔRPTOR nutrient-fed)
@@ -285,11 +463,6 @@ phospho_nutri_rap$tx_pval_rank <- rank(phospho_nutri_rap$tx_pval)
 
 phospho_nutri_rap <- phospho_nutri_rap %>%
   mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
-
-# genes with the highest significant across both modalities?
-phospho_nutri_rap %>%
-  arrange(average_pval_rank) %>%
-  head(50)
 ```
 
 Which genes are present and appear significant in both datasets?
@@ -297,7 +470,9 @@ Which genes are present and appear significant in both datasets?
 ```{r rap_nutri_common_sig}
 phospho_nutri_rap %>%
   filter(!is.na(tx_pval) & !is.na(symbol)) %>%
-  filter(padj <= 0.01 & tx_padj <= 0.01)
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
 ```
 
 ## ΔRPTOR starved
@@ -309,11 +484,29 @@ Genes with the highest differential expression between ΔRPTOR and control?
 ```{r tx_starved_rap}
 deseq_starved[["rap"]] %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 ```{r raptor_starved_volcano_plot}
-plot_tx_volcano(deseq_starved[["rap"]], "ΔRPTOR Transcriptome Differential Expression (starved)")
+# significant genes for each complex knockout
+mtorc1_tx_starved_genes <- deseq_starved[["rap"]] %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc2_tx_starved_genes <- deseq_starved[["ric"]] %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc3_tx_starved_genes <- deseq_starved[["meak7"]] %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+plot_volcano(deseq_starved[["rap"]],
+             mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
+             "ΔRPTOR Transcriptome Differential Expression (starved)")
 ```
 
 ### Phosphoproteome (ΔRPTOR starved)
@@ -321,14 +514,9 @@ plot_tx_volcano(deseq_starved[["rap"]], "ΔRPTOR Transcriptome Differential Expr
 Phospho sites with the highest differential abundance between ΔRPTOR and control?
 
 ```{r phospho_starved_rap_top_hits}
-phospho_starved_rap_full <- phospho_starved %>%
-  # select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, pval = rap_pval, padj = rap_padj) %>%
-  select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, padj = rap_padj) %>%
-  filter(!is.na(padj))
-
 phospho_starved_rap_full %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 How many proteins are associated with multiple phosphorylation sites?
@@ -337,19 +525,27 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_starved_rap_full$symbol))
 ```
 
-Create a table of the most significant phosphorylation sites associated with each gene.
-
-```{r phospho_starved_rap_collapse_sites}
-phospho_starved_rap <- phospho_starved_rap_full %>%
-  group_by(symbol) %>%
-  # arrange(pval) %>%
-  arrange(padj) %>%
-  slice(1) %>%
-  ungroup()
-```
-
 ```{r raptor_starved_volcano_plot}
-plot_phospho_volcano(phospho_starved_rap, "ΔRPTOR Phosphoproteome Differential Abundance (starved)")
+# significant genes for each complex knockout
+mtorc1_phospho_nutri_genes <- phospho_nutri_rap %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc2_phospho_nutri_genes <- phospho_nutri_ric %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc3_phospho_nutri_genes <- phospho_nutri_meak7 %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+plot_volcano(phospho_starved_rap,
+             mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
+             "ΔRPTOR Phosphoproteome Differential Abundance (starved)",
+             "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔRPTOR starved)
@@ -370,11 +566,6 @@ phospho_starved_rap$tx_pval_rank <- rank(phospho_starved_rap$tx_pval)
 
 phospho_starved_rap <- phospho_starved_rap %>%
   mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
-
-# genes with the highest significant across both modalities?
-phospho_starved_rap %>%
-  arrange(average_pval_rank) %>%
-  head(50)
 ```
 
 Which genes are present and appear significant in both datasets?
@@ -382,7 +573,9 @@ Which genes are present and appear significant in both datasets?
 ```{r rap_starved_common_sig}
 phospho_starved_rap %>%
   filter(!is.na(tx_pval) & !is.na(symbol)) %>%
-  filter(padj <= 0.01 & tx_padj <= 0.01)
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
 ```
 
 ## ΔRICTOR nutrient-fed
@@ -394,11 +587,13 @@ Genes with the highest differential expression between ΔRICTOR and control?
 ```{r tx_nutri_ric}
 deseq_nutri[["ric"]] %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 ```{r ric_nutri_volcano_plot}
-plot_tx_volcano(deseq_nutri[["ric"]], "ΔRICTOR Transcriptome Differential Expression (nutrient-fed)")
+plot_volcano(deseq_nutri[["ric"]],
+             mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
+             "ΔRICTOR Transcriptome Differential Expression (nutrient-fed)")
 ```
 
 ### Phosphoproteome (ΔRICTOR nutrient-fed)
@@ -406,13 +601,9 @@ plot_tx_volcano(deseq_nutri[["ric"]], "ΔRICTOR Transcriptome Differential Expre
 Phospho sites with the highest differential abundance between ΔRICTOR and control?
 
 ```{r phospho_nutri_ric_top_hits}
-phospho_nutri_ric_full <- phospho_nutri %>%
-  select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, pval = ric_pval, padj = ric_padj) %>%
-  filter(!is.na(padj))
-
 phospho_nutri_ric_full %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 How many proteins are associated with multiple phosphorylation sites?
@@ -421,18 +612,10 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_nutri_ric_full$symbol))
 ```
 
-Create a table of the most significant phosphorylation sites associated with each gene.
-
-```{r phospho_nutri_ric_collapse_sites}
-phospho_nutri_ric <- phospho_nutri_ric_full %>%
-  group_by(symbol) %>%
-  arrange(pval) %>%
-  slice(1) %>%
-  ungroup()
-```
-
 ```{r ric_nutri_volcano_plot}
-plot_phospho_volcano(phospho_nutri_ric, "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)")
+plot_volcano(phospho_nutri_ric,
+             mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
+             "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔRICTOR nutrient-fed)
@@ -452,11 +635,6 @@ phospho_nutri_ric$tx_pval_rank <- rank(phospho_nutri_ric$tx_pval)
 
 phospho_nutri_ric <- phospho_nutri_ric %>%
   mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
-
-# genes with the highest significant across both modalities?
-phospho_nutri_ric %>%
-  arrange(average_pval_rank) %>%
-  head(50)
 ```
 
 Which genes are present and appear significant in both datasets?
@@ -464,7 +642,9 @@ Which genes are present and appear significant in both datasets?
 ```{r ric_nutri_common_sig}
 phospho_nutri_ric %>%
   filter(!is.na(tx_pval) & !is.na(symbol)) %>%
-  filter(padj <= 0.01 & tx_padj <= 0.01)
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
 ```
 
 ## ΔRICTOR starved
@@ -476,11 +656,13 @@ Genes with the highest differential expression between ΔRICTOR and control?
 ```{r tx_starved_ric}
 deseq_starved[["ric"]] %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 ```{r rictor_starved_volcano_plot}
-plot_tx_volcano(deseq_starved[["ric"]], "ΔRICTOR Transcriptome Differential Expression (starved)")
+plot_volcano(deseq_starved[["ric"]],
+             mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
+             "ΔRICTOR Transcriptome Differential Expression (starved)")
 ```
 
 ### Phosphoproteome (ΔRICTOR starved)
@@ -488,14 +670,9 @@ plot_tx_volcano(deseq_starved[["ric"]], "ΔRICTOR Transcriptome Differential Exp
 Phospho sites with the highest differential abundance between ΔRICTOR and control?
 
 ```{r phospho_starved_ric_top_hits}
-phospho_starved_ric_full <- phospho_starved %>%
-  # select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, pval = ric_pval, padj = ric_padj) %>%
-  select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, padj = ric_padj) %>%
-  filter(!is.na(padj))
-
 phospho_starved_ric_full %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 How many proteins are associated with multiple phosphorylation sites?
@@ -504,19 +681,26 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_starved_ric_full$symbol))
 ```
 
-Create a table of the most significant phosphorylation sites associated with each gene.
-
-```{r phospho_starved_ric_collapse_sites}
-phospho_starved_ric <- phospho_starved_ric_full %>%
-  group_by(symbol) %>%
-  # arrange(pval) %>%
-  arrange(padj) %>%
-  slice(1) %>%
-  ungroup()
-```
-
 ```{r rictor_starved_volcano_plot}
-plot_phospho_volcano(phospho_starved_ric, "ΔRICTOR Phosphoproteome Differential Abundance (starved)")
+# significant genes for each complex knockout
+mtorc1_phospho_starved_genes <- phospho_starved_rap %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc2_phospho_starved_genes <- phospho_starved_ric %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc3_phospho_starved_genes <- phospho_starved_meak7 %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+plot_volcano(phospho_starved_ric,
+             mtorc1_phospho_starved_genes, mtorc2_phospho_starved_genes, mtorc3_phospho_starved_genes,
+             "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔRICTOR starved)
@@ -537,11 +721,6 @@ phospho_starved_ric$tx_pval_rank <- rank(phospho_starved_ric$tx_pval)
 
 phospho_starved_ric <- phospho_starved_ric %>%
   mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
-
-# genes with the highest significant across both modalities?
-phospho_starved_ric %>%
-  arrange(average_pval_rank) %>%
-  head(50)
 ```
 
 Which genes are present and appear significant in both datasets?
@@ -549,7 +728,9 @@ Which genes are present and appear significant in both datasets?
 ```{r ric_starved_common_sig}
 phospho_starved_ric %>%
   filter(!is.na(tx_pval) & !is.na(symbol)) %>%
-  filter(padj <= 0.01 & tx_padj <= 0.01)
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
 ```
 
 ## ΔMEAK7 nutrient-fed
@@ -561,11 +742,13 @@ Genes with the highest differential expression between ΔMEAK7 and control?
 ```{r tx_nutri_meak7}
 deseq_nutri[["meak7"]] %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 ```{r meak7_nutri_volcano_plot}
-plot_tx_volcano(deseq_nutri[["meak7"]], "ΔMEAK7 Transcriptome Differential Expression (nutrient-fed)")
+plot_volcano(deseq_nutri[["meak7"]],
+             mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
+             "ΔMEAK7 Transcriptome Differential Expression (nutrient-fed)")
 ```
 
 ### Phosphoproteome (ΔMEAK7 nutrient-fed)
@@ -573,13 +756,9 @@ plot_tx_volcano(deseq_nutri[["meak7"]], "ΔMEAK7 Transcriptome Differential Expr
 Phospho sites with the highest differential abundance between ΔMEAK7 and control?
 
 ```{r phospho_nutri_meak7_top_hits}
-phospho_nutri_meak7_full <- phospho_nutri %>%
-  select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, pval = meak7_pval, padj = meak7_padj) %>%
-  filter(!is.na(padj))
-
 phospho_nutri_meak7_full %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 How many proteins are associated with multiple phosphorylation sites?
@@ -588,18 +767,10 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_nutri_meak7_full$symbol))
 ```
 
-Create a table of the most significant phosphorylation sites associated with each gene.
-
-```{r phospho_nutri_meak7_collapse_sites}
-phospho_nutri_meak7 <- phospho_nutri_meak7_full %>%
-  group_by(symbol) %>%
-  arrange(pval) %>%
-  slice(1) %>%
-  ungroup()
-```
-
 ```{r meak7_nutri_volcano_plot}
-plot_phospho_volcano(phospho_nutri_meak7, "ΔMEAK7 Phosphoproteome Differential Abundance (nutrient-fed)")
+plot_volcano(phospho_nutri_meak7,
+             mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
+             "ΔMEAK7 Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔMEAK7 nutrient-fed)
@@ -619,11 +790,6 @@ phospho_nutri_meak7$tx_pval_rank <- rank(phospho_nutri_meak7$tx_pval)
 
 phospho_nutri_meak7 <- phospho_nutri_meak7 %>%
   mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
-
-# genes with the highest significant across both modalities?
-phospho_nutri_meak7 %>%
-  arrange(average_pval_rank) %>%
-  head(50)
 ```
 
 Which genes are present and appear significant in both datasets?
@@ -631,7 +797,9 @@ Which genes are present and appear significant in both datasets?
 ```{r meak7_nutri_common_sig}
 phospho_nutri_meak7 %>%
   filter(!is.na(tx_pval) & !is.na(symbol)) %>%
-  filter(padj <= 0.01 & tx_padj <= 0.01)
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
 ```
 
 ## ΔMEAK7 starved
@@ -643,11 +811,13 @@ Genes with the highest differential expression between ΔMEAK7 and control?
 ```{r tx_starved_meak7}
 deseq_starved[["meak7"]] %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 ```{r rictor_starved_volcano_plot}
-plot_tx_volcano(deseq_starved[["meak7"]], "ΔMEAK7 Transcriptome Differential Expression (starved)")
+plot_volcano(deseq_starved[["meak7"]],
+             mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
+             "ΔMEAK7 Transcriptome Differential Expression (starved)")
 ```
 
 ### Phosphoproteome (ΔMEAK7 starved)
@@ -655,14 +825,9 @@ plot_tx_volcano(deseq_starved[["meak7"]], "ΔMEAK7 Transcriptome Differential Ex
 Phospho sites with the highest differential abundance between ΔMEAK7 and control?
 
 ```{r phospho_starved_meak7_top_hits}
-phospho_starved_meak7_full <- phospho_starved %>%
-  # select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, pval = meak7_pval, padj = meak7_padj) %>%
-  select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, padj = meak7_padj) %>%
-  filter(!is.na(padj))
-
 phospho_starved_meak7_full %>%
   arrange(padj) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 How many proteins are associated with multiple phosphorylation sites?
@@ -671,19 +836,10 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_starved_meak7_full$symbol))
 ```
 
-Create a table of the most significant phosphorylation sites associated with each gene.
-
-```{r phospho_starved_meak7_collapse_sites}
-phospho_starved_meak7 <- phospho_starved_meak7_full %>%
-  group_by(symbol) %>%
-  # arrange(pval) %>%
-  arrange(padj) %>%
-  slice(1) %>%
-  ungroup()
-```
-
 ```{r meak7_starved_volcano_plot}
-plot_phospho_volcano(phospho_starved_meak7, "ΔMEAK7 Phosphoproteome Differential Abundance (starved)")
+plot_volcano(phospho_starved_meak7,
+             mtorc1_phospho_starved_genes, mtorc2_phospho_starved_genes, mtorc3_phospho_starved_genes,
+             "ΔMEAK7 Phosphoproteome Differential Abundance (starved)", "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔMEAK7 starved)
@@ -704,11 +860,6 @@ phospho_starved_meak7$tx_pval_rank <- rank(phospho_starved_meak7$tx_pval)
 
 phospho_starved_meak7 <- phospho_starved_meak7 %>%
   mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
-
-# genes with the highest significant across both modalities?
-phospho_starved_meak7 %>%
-  arrange(average_pval_rank) %>%
-  head(50)
 ```
 
 Which genes are present and appear significant in both datasets?
@@ -716,7 +867,9 @@ Which genes are present and appear significant in both datasets?
 ```{r meak7_starved_common_sig}
 phospho_starved_meak7 %>%
   filter(!is.na(tx_pval) & !is.na(symbol)) %>%
-  filter(padj <= 0.01 & tx_padj <= 0.01)
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
 ```
 
 ## Commonly affected genes
@@ -725,14 +878,14 @@ Nutrient-fed:
 
 ```{r tx_nutri_common_genes}
 deseq_nutri[["combined"]] %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 Starved:
 
 ```{r tx_starved_common_genes}
 deseq_starved[["combined"]] %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 ## Commonly affected phosphorylation sites
@@ -742,7 +895,7 @@ Nutrient-fed:
 ```{r phospho_nutri_common_genes}
 phospho_nutri %>%
   arrange(padj_all) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
 Starved:
@@ -750,23 +903,53 @@ Starved:
 ```{r phospho_starved_common_genes}
 phospho_starved %>%
   arrange(padj_all) %>%
-  head(50)
+  head(cfg$table_max_rows)
 ```
 
-<!--
 ## Save Results
 
 ```{r write_output}
-phospho_nutri %>%
-  write_tsv(file.path(cfg$output_dir, "phospho_nutri.tsv"))
+# Phosphosite-level Proteasome Discoverer
+phospho_tbls <- list(
+  "RPTOR (nutrient-fed)" = phospho_nutri_rap_full,
+  "RICTOR (nutrient-fed)" = phospho_nutri_ric_full,
+  "MEAK7 (nutrient-fed)" = phospho_nutri_meak7_full,
+  "RPTOR (starved)" = phospho_starved_rap_full,
+  "RICTOR (starved)" = phospho_starved_ric_full,
+  "MEAK7 (starved)" = phospho_starved_meak7_full
+)
 
-phospho_nutri_meak7 %>%
-  write_tsv(file.path(cfg$output_dir, "phospho_nutri_meak7_vs_control.tsv"))
+phospho_full_outfile <- file.path(cfg$output_dir, "proteome_discoverer_phosphosites_all.xlsx")
+write.xlsx(phospho_tbls, file = phospho_full_outfile)
 
-# phospho_nutri_meak7 %>%
-#   write_tsv(file.path(cfg$output_dir, "phospho_nutri_meak7_vs_control.tsv"))
+# Subset of Phosphosite-level Proteasome Discoverer with the most significant entry for each protein
+phospho_subset_tbls <- list(
+  "RPTOR (nutrient-fed)" = phospho_nutri_rap,
+  "RICTOR (nutrient-fed)" = phospho_nutri_ric,
+  "MEAK7 (nutrient-fed)" = phospho_nutri_meak7,
+  "RPTOR (starved)" = phospho_starved_rap,
+  "RICTOR (starved)" = phospho_starved_ric,
+  "MEAK7 (starved)" = phospho_starved_meak7
+)
+
+phospho_outfile <- file.path(cfg$output_dir, "proteome_discoverer_phosphosites_top.xlsx")
+write.xlsx(phospho_subset_tbls, file = phospho_outfile)
+
+# DESeq2 results
+deseq_tbls = list(
+  "RPTOR (nutrient-fed)" = deseq_nutri[["rap"]],
+  "RICTOR (nutrient-fed)" = deseq_nutri[["ric"]],
+  "MEAK7 (nutrient-fed)" = deseq_nutri[["meak7"]],
+  "Combined (nutrient-fed)" = deseq_nutri[["combined"]],
+  "RPTOR (starved)" = deseq_starved[["rap"]],
+  "RICTOR (starved)" = deseq_starved[["ric"]],
+  "MEAK7 (starved)" = deseq_starved[["meak7"]],
+  "Combined (starved)" = deseq_starved[["combined"]]
+)
+
+tx_outfile <- file.path(cfg$output_dir, "deseq2_results.xlsx")
+write.xlsx(deseq_tbls, file = tx_outfile)
 ```
--->
 
 # Session Info
 
@@ -777,10 +960,10 @@ sessionInfo()
 Input data md5 sums:
 
 ```{r file_info, results='asis'}
-input_files <- c(phospho_nutri_infile, 
-                 cfg$uniprot_mapping, 
+input_files <- c(phospho_nutri_infile,
+                 cfg$uniprot_mapping,
                  file.path(deseq_dir,"condition_Rap_nutri_vs_v_nutri.tsv"),
-                 file.path(deseq_dir, "condition_Ric_nutri_vs_v_nutri.tsv"), 
+                 file.path(deseq_dir, "condition_Ric_nutri_vs_v_nutri.tsv"),
                  file.path(deseq_dir, "condition_m7_nutri_vs_v_nutri.tsv"),
                  file.path(deseq_dir, "condition_Rap_starved_vs_v_starved.tsv"),
                  file.path(deseq_dir, "condition_Ric_starved_vs_v_starved.tsv"),
