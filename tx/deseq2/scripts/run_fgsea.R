@@ -1,14 +1,14 @@
 #
 # fgsea gene set enrichment
 #
-library(fgsea)
 library(tidyverse)
 library(GSEABase)
+library(clusterProfiler)
 
-set.seed(321)
+cfg <- snakemake@config$fgsea
 
 # load MSigDB gene sets
-gene_sets <- geneIds(getGmt(snakemake@params$gmt))
+gene_sets <- geneIds(getGmt(cfg$gmt))
 
 # load deseq2 results
 deseq2_res <- read_tsv(snakemake@input[[1]], col_types = cols())
@@ -31,7 +31,18 @@ gene_scores <- setNames(deseq2_res$log2FoldChange, deseq2_res$symbol)
 # compute functional enrichment and store result
 # res <- fgsea(pathways = gene_sets, stats = gene_scores, eps = 0, nPermSimple = 10000) %>%
 #   arrange(padj)
-res <- fgsea(pathways = gene_sets, stats = gene_scores, eps = 0, nPermSimple = 10000)
+# res <- fgsea(pathways = gene_sets,
+#              stats = gene_scores,
+#              eps = cfg$eps,
+#              nPermSimple = cfg$nperm,
+#              pvalueCutoff = cfg$min_padj,
+#              seed = cfg$random_seed)
+
+res <- GSEA(gene_scores, 
+            TERM2GENE = gene_sets, 
+            seed = cfg$random_seed,
+            pvalueCutoff = cfg$min_padj, 
+            nPermSimple = cfg$nperm)
 
 res <- res %>%
   arrange(padj)

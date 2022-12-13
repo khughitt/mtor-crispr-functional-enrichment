@@ -46,8 +46,6 @@ rule fgsea:
         os.path.join(config['output_dir'], "deseq2/{contrast}.tsv")
     output:
         os.path.join(config['output_dir'], "fgsea/{contrast}.tsv")
-    params:
-        gmt=config['msigdb_gmt']
     script:
         "scripts/run_fgsea.R"
 
