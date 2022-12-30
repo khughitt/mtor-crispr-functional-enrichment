@@ -1,6 +1,8 @@
 .snakemake
 .RData
 *.html
+*.log
+*.pdf
 archive
 output
 config.yml

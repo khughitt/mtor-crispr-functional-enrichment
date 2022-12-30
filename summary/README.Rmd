@@ -9,6 +9,8 @@ output:
     df_print: kable
     toc: true
     toc_depth: 3
+    latex_engine: xelatex
+always_allow_html: yes
 ---
 
 # Overview
