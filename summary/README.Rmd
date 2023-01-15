@@ -55,7 +55,7 @@ if (opts_knit$get("rmarkdown.pandoc.to") == "latex") {
 }
 ```
 
-```{r helper_funcs}
+```{r helper_func}
 #
 # plot_volcano
 #
@@ -85,13 +85,18 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
   shared_23 <- intersect(mtorc2_genes, mtorc3_genes)
   shared_123 <- intersect(mtorc1_genes, shared_23)
 
-  # assign colors
-  pal <- brewer.pal(3, "Set2")
-  pal <- c(pal, "#1CADE0")
+  # complex name? (eg. "mTORC1")
+  complex_name <- ifelse(target == "rap", "mTORC1", ifelse(target == "ric", "mTORC2", "mTORC3"))
 
+  # assign colors
+  pal <- brewer.pal(4, "Dark2")
   names(pal) <- c("mTORC1/2", "mTORC1/3", "mTORC2/3", "mTORC1-3")
 
+  pal <- c(pal, "#7F7F7F", "#AAAAAA")
+  names(pal)[(length(pal) - 1):(length(pal))] <- c(complex_name, "Not significant")
+
   dat$group <- "Not significant"
+  dat$group[dat$padj < 0.01] <- complex_name
 
   if (target == "rap") {
     dat$group[dat$symbol %in% shared_12] <- "mTORC1/2"
@@ -109,11 +114,16 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
 
   dat$group[dat$symbol %in% shared_123] <- "mTORC1-3"
 
+  # split dat into two groups to allow shared significant genes to be made more visible?
+  # dat1 <- dat %>%
+  #   filter(group %in% c(complex_name, "Not significant"))
+  #
+  # dat2 <- dat %>%
+  #   filter(!group %in% c(complex_name, "Not significant"))
+
   # interactive plot (plotly)
   if (opts_knit$get("rmarkdown.pandoc.to") == "html") {
     library(plotly)
-
-    pal <- c(pal, `Not significant` = "#7F7F7F")
 
     # helper func to draw vertical lines
     # https://stackoverflow.com/a/34097929/554531
@@ -124,10 +134,12 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
 
     if (data_type == "tx") {
       hover_text <- ~paste("<b>", ensgene, "</b><br><br>",
-                           "<b>", symbol, "</b><br><br>", "<extra></extra>")
+                           "<b>", symbol, "</b><br><br>",
+                           "<b>Adj. P-val: ", padj, "</b><br><br>", "<extra></extra>")
     } else {
       hover_text <- ~paste("<b>", uniprot, "</b><br><br>",
-                           "<b>", symbol, "</b><br><br>", "<extra></extra>")
+                           "<b>", symbol, "</b><br><br>",
+                           "<b>Adj. P-val: ", padj, "</b><br><br>", "<extra></extra>")
     }
 
     plot_ly(data = dat,
@@ -142,6 +154,8 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
       layout(title = plot_title) %>%
       layout(shapes = list(vline(-1), vline(1))) %>%
       add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
+      # add_trace(data = dat2, marker = list(size = 7), type = 'scatter',
+      #           hovertemplate = "%{text}", showlegend = FALSE)
 
   } else {
     # static plot (ggplot2)
@@ -411,7 +425,7 @@ deseq_nutri[["rap"]] %>%
   head(cfg$table_max_rows)
 ```
 
-```{r raptor_nutri_tx_volcano_plot}
+```{r raptor_nutri_tx_volcano_plot, message = FALSE, warning = FALSE}
 # significant genes for each complex knockout
 mtorc1_tx_nutri_genes <- deseq_nutri[["rap"]] %>%
   arrange(padj) %>%
@@ -450,7 +464,7 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_nutri_rap_full$symbol))
 ```
 
-```{r raptor_nutri_volcano_plot}
+```{r raptor_nutri_volcano_plot, message = FALSE, warning = FALSE}
 # significant genes for each complex knockout
 mtorc1_phospho_nutri_genes <- phospho_nutri_rap %>%
   arrange(padj) %>%
@@ -514,7 +528,7 @@ deseq_starved[["rap"]] %>%
   head(cfg$table_max_rows)
 ```
 
-```{r raptor_starved_volcano_plot}
+```{r raptor_starved_volcano_plot, message = FALSE, warning = FALSE}
 # significant genes for each complex knockout
 mtorc1_tx_starved_genes <- deseq_starved[["rap"]] %>%
   arrange(padj) %>%
@@ -553,7 +567,7 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_starved_rap_full$symbol))
 ```
 
-```{r raptor_starved_volcano_plot}
+```{r raptor_starved_volcano_plot, message = FALSE, warning = FALSE}
 # significant genes for each complex knockout
 mtorc1_phospho_nutri_genes <- phospho_nutri_rap %>%
   arrange(padj) %>%
@@ -619,7 +633,7 @@ deseq_nutri[["ric"]] %>%
   head(cfg$table_max_rows)
 ```
 
-```{r ric_nutri_volcano_plot}
+```{r ric_nutri_volcano_plot, message = FALSE, warning = FALSE}
 plot_volcano(deseq_nutri[["ric"]],
              mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
              "ric",
@@ -642,7 +656,7 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_nutri_ric_full$symbol))
 ```
 
-```{r ric_nutri_volcano_plot}
+```{r ric_nutri_volcano_plot, message = FALSE, warning = FALSE}
 plot_volcano(phospho_nutri_ric,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "ric",
@@ -690,7 +704,7 @@ deseq_starved[["ric"]] %>%
   head(cfg$table_max_rows)
 ```
 
-```{r rictor_starved_volcano_plot}
+```{r rictor_starved_volcano_plot, message = FALSE, warning = FALSE}
 plot_volcano(deseq_starved[["ric"]],
              mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
              "ric",
@@ -713,7 +727,7 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_starved_ric_full$symbol))
 ```
 
-```{r rictor_starved_volcano_plot}
+```{r rictor_starved_volcano_plot, message = FALSE, warning = FALSE}
 # significant genes for each complex knockout
 mtorc1_phospho_starved_genes <- phospho_starved_rap %>%
   arrange(padj) %>%
@@ -778,7 +792,7 @@ deseq_nutri[["meak7"]] %>%
   head(cfg$table_max_rows)
 ```
 
-```{r meak7_nutri_volcano_plot}
+```{r meak7_nutri_volcano_plot, message = FALSE, warning = FALSE}
 plot_volcano(deseq_nutri[["meak7"]],
              mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
              "meak7",
@@ -801,7 +815,7 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_nutri_meak7_full$symbol))
 ```
 
-```{r meak7_nutri_volcano_plot}
+```{r meak7_nutri_volcano_plot, message = FALSE, warning = FALSE}
 plot_volcano(phospho_nutri_meak7,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "meak7",
@@ -849,7 +863,7 @@ deseq_starved[["meak7"]] %>%
   head(cfg$table_max_rows)
 ```
 
-```{r rictor_starved_volcano_plot}
+```{r rictor_starved_volcano_plot, message = FALSE, warning = FALSE}
 plot_volcano(deseq_starved[["meak7"]],
              mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
              "meak7",
@@ -872,7 +886,7 @@ How many proteins are associated with multiple phosphorylation sites?
 table(duplicated(phospho_starved_meak7_full$symbol))
 ```
 
-```{r meak7_starved_volcano_plot}
+```{r meak7_starved_volcano_plot, message = FALSE, warning = FALSE}
 plot_volcano(phospho_starved_meak7,
              mtorc1_phospho_starved_genes, mtorc2_phospho_starved_genes, mtorc3_phospho_starved_genes,
              "meak7",
