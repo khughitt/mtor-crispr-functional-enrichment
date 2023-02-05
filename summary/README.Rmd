@@ -115,11 +115,11 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
   dat$group[dat$symbol %in% shared_123] <- "mTORC1-3"
 
   # split dat into two groups to allow shared significant genes to be made more visible?
-  # dat1 <- dat %>%
-  #   filter(group %in% c(complex_name, "Not significant"))
-  #
-  # dat2 <- dat %>%
-  #   filter(!group %in% c(complex_name, "Not significant"))
+  dat1 <- dat %>%
+    filter(group %in% c(complex_name, "Not significant"))
+
+  dat2 <- dat %>%
+    filter(!group %in% c(complex_name, "Not significant"))
 
   # interactive plot (plotly)
   if (opts_knit$get("rmarkdown.pandoc.to") == "html") {
@@ -133,16 +133,18 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
     }
 
     if (data_type == "tx") {
-      hover_text <- ~paste("<b>", ensgene, "</b><br><br>",
-                           "<b>", symbol, "</b><br><br>",
-                           "<b>Adj. P-val: ", padj, "</b><br><br>", "<extra></extra>")
+      hover_text <- ~paste("<b>", symbol, "</b><br><br>",
+                           ensgene, "<br><br>",
+                           "Signifiance: ", group, "<br><br>",
+                           "<b>Adj. P-val:</b> ", padj, "<extra></extra>")
     } else {
-      hover_text <- ~paste("<b>", uniprot, "</b><br><br>",
-                           "<b>", symbol, "</b><br><br>",
-                           "<b>Adj. P-val: ", padj, "</b><br><br>", "<extra></extra>")
+      hover_text <- ~paste("<b>", symbol, "</b><br>",
+                           uniprot, "<br><br>",
+                           "Significance: ", group, "<br><br>",
+                           "<b>Adj. P-val:</b> ", padj, "<extra></extra>")
     }
 
-    plot_ly(data = dat,
+    plot_ly(data = dat1,
             x = ~log2ratio,
             y = ~log10pval,
             color = ~group,
@@ -153,9 +155,9 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
             text = hover_text) %>%
       layout(title = plot_title) %>%
       layout(shapes = list(vline(-1), vline(1))) %>%
-      add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
-      # add_trace(data = dat2, marker = list(size = 7), type = 'scatter',
-      #           hovertemplate = "%{text}", showlegend = FALSE)
+      add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE) %>%
+      add_trace(data = dat2, marker = list(size = 7), type = 'scatter',
+                hovertemplate = "%{text}", showlegend = FALSE)
 
   } else {
     # static plot (ggplot2)
