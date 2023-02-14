@@ -51,8 +51,15 @@ knitr::opts_chunk$set(
 )
 
 if (opts_knit$get("rmarkdown.pandoc.to") == "latex") {
-  opts_chunk$set(dev='cairo_pdf', dev.args=list(cairo_pdf = list(family='Times New Roman')))
+  opts_chunk$set(dev = 'cairo_pdf', dev.args = list(cairo_pdf = list(family = 'Times New Roman')))
 }
+
+# volcano plot x & y axes limits
+TX_XLIMS <- list(-10, 10)
+TX_YLIMS <- list(0, 160)
+
+PHOSPHO_XLIMS <- list(-3, 3)
+PHOSPHO_YLIMS <- list(0, 14)
 ```
 
 ```{r helper_func}
@@ -61,7 +68,8 @@ if (opts_knit$get("rmarkdown.pandoc.to") == "latex") {
 #
 # Helper function to generate a static or interactive volcano plot
 #
-plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, plot_title, data_type = "tx") {
+plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, plot_title,
+                         xlims, ylims, data_type = "tx") {
   dat <- dat %>%
     mutate(log10pval = -log10(padj))
 
@@ -115,11 +123,11 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
   dat$group[dat$symbol %in% shared_123] <- "mTORC1-3"
 
   # split dat into two groups to allow shared significant genes to be made more visible?
-  dat1 <- dat %>%
-    filter(group %in% c(complex_name, "Not significant"))
-
-  dat2 <- dat %>%
-    filter(!group %in% c(complex_name, "Not significant"))
+  # dat1 <- dat %>%
+  #   filter(group %in% c(complex_name, "Not significant"))
+  #
+  # dat2 <- dat %>%
+  #   filter(!group %in% c(complex_name, "Not significant"))
 
   # interactive plot (plotly)
   if (opts_knit$get("rmarkdown.pandoc.to") == "html") {
@@ -128,8 +136,8 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
     # helper func to draw vertical lines
     # https://stackoverflow.com/a/34097929/554531
     vline <- function(x = 0, color = "red") {
-      list(type = "line", y0 = 0, y1 = 1, yref = "paper", x0 = x, x1 = x, 
-           line = list(color = color, dash = "dashed"))
+      list(type = "line", y0 = 0, y1 = 1, yref = "paper", x0 = x, x1 = x,
+           line = list(color = color, dash = "dashed", width = 1))
     }
 
     if (data_type == "tx") {
@@ -144,7 +152,7 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
                            "<b>Adj. P-val:</b> ", padj, "<extra></extra>")
     }
 
-    plot_ly(data = dat1,
+    plot_ly(data = dat,
             x = ~log2ratio,
             y = ~log10pval,
             color = ~group,
@@ -153,11 +161,12 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
             mode = 'markers',
             marker = list(size = 5),
             text = hover_text) %>%
+      layout(xaxis = list(range = xlims), yaxis = list(range = ylims)) %>%
       layout(title = plot_title) %>%
       layout(shapes = list(vline(-1), vline(1))) %>%
-      add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE) %>%
-      add_trace(data = dat2, marker = list(size = 7), type = 'scatter',
-                hovertemplate = "%{text}", showlegend = FALSE)
+      add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
+      #add_trace(data = dat2, marker = list(size = 5), type = 'scatter',
+      #          hovertemplate = "%{text}", showlegend = FALSE)
 
   } else {
     # static plot (ggplot2)
@@ -166,6 +175,8 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
       scale_colour_manual(name = "Significance", values = pal) +
       ggtitle(plot_title) +
       geom_vline(xintercept = c(-1, 1), color = "#FF4444") +
+      xlim(unlist(xlims)) +
+      ylim(unlist(ylims)) +
       theme_bw()
   }
 }
@@ -306,13 +317,10 @@ phospho_starved <- read_tsv(phospho_starved_infile, show_col_types = FALSE) %>%
          mod_proteins = `Modifications in Master Proteins`,
          rap_ratio = `Abundance Ratio: (Rap_del_1R) / (V_del_4R)`,
          rap_padj = `Abundance Ratio Adj. P-Value: (Rap_del_1R) / (V_del_4R)`,
-         #rap_pval = `Abundance Ratio P-Value: (Rap_del_1R) / (V_del_4R)`,
          ric_ratio = `Abundance Ratio: (Ric_del_SR) / (V_del_4R)`,
          ric_padj = `Abundance Ratio Adj. P-Value: (Ric_del_SR) / (V_del_4R)`,
-         #ric_pval = `Abundance Ratio P-Value: (Ric_del_SR) / (V_del_4R)`,
          meak7_ratio = `Abundance Ratio: (M7_del_SR) / (V_del_4R)`,
          meak7_padj = `Abundance Ratio Adj. P-Value: (M7_del_SR) / (V_del_4R)`)
-         #meak7_pval = `Abundance Ratio P-Value: (M7_del_SR) / (V_del_4R)`)
 
 # log2 transform abundance ratios to be consistent with the nutrient-fed sample results
 phospho_starved <- phospho_starved %>%
@@ -352,7 +360,6 @@ phospho_nutri_rap_full <- phospho_nutri %>%
   filter(!is.na(padj))
 
 phospho_starved_rap_full <- phospho_starved %>%
-  # select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, pval = rap_pval, padj = rap_padj) %>%
   select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, padj = rap_padj) %>%
   filter(!is.na(padj))
 
@@ -361,7 +368,6 @@ phospho_nutri_ric_full <- phospho_nutri %>%
   filter(!is.na(padj))
 
 phospho_starved_ric_full <- phospho_starved %>%
-  # select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, pval = ric_pval, padj = ric_padj) %>%
   select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, padj = ric_padj) %>%
   filter(!is.na(padj))
 
@@ -370,7 +376,6 @@ phospho_nutri_meak7_full <- phospho_nutri %>%
   filter(!is.na(padj))
 
 phospho_starved_meak7_full <- phospho_starved %>%
-  # select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, pval = meak7_pval, padj = meak7_padj) %>%
   select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, padj = meak7_padj) %>%
   filter(!is.na(padj))
 ```
@@ -447,7 +452,8 @@ mtorc3_tx_nutri_genes <- deseq_nutri[["meak7"]] %>%
 plot_volcano(deseq_nutri[["rap"]],
              mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
              "rap",
-             "ΔRPTOR Transcriptome Differential Expression (nutrient-fed)")
+             "ΔRPTOR Transcriptome Differential Expression (nutrient-fed)",
+             TX_XLIMS, TX_YLIMS)
 ```
 
 ### Phosphoproteome (ΔRPTOR nutrient-fed)
@@ -486,7 +492,9 @@ mtorc3_phospho_nutri_genes <- phospho_nutri_meak7 %>%
 plot_volcano(phospho_nutri_rap,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "rap",
-             "ΔRPTOR Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
+             "ΔRPTOR Phosphoproteome Differential Abundance (nutrient-fed)", 
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔRPTOR nutrient-fed)
@@ -550,7 +558,8 @@ mtorc3_tx_starved_genes <- deseq_starved[["meak7"]] %>%
 plot_volcano(deseq_starved[["rap"]],
              mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
              "rap",
-             "ΔRPTOR Transcriptome Differential Expression (starved)")
+             "ΔRPTOR Transcriptome Differential Expression (starved)",
+             TX_XLIMS, TX_YLIMS)
 ```
 
 ### Phosphoproteome (ΔRPTOR starved)
@@ -590,6 +599,7 @@ plot_volcano(phospho_starved_rap,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "rap",
              "ΔRPTOR Phosphoproteome Differential Abundance (starved)",
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
              "phospho")
 ```
 
@@ -639,7 +649,8 @@ deseq_nutri[["ric"]] %>%
 plot_volcano(deseq_nutri[["ric"]],
              mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
              "ric",
-             "ΔRICTOR Transcriptome Differential Expression (nutrient-fed)")
+             "ΔRICTOR Transcriptome Differential Expression (nutrient-fed)",
+             TX_XLIMS, TX_YLIMS)
 ```
 
 ### Phosphoproteome (ΔRICTOR nutrient-fed)
@@ -662,7 +673,9 @@ table(duplicated(phospho_nutri_ric_full$symbol))
 plot_volcano(phospho_nutri_ric,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "ric",
-             "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
+             "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)", 
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔRICTOR nutrient-fed)
@@ -710,7 +723,8 @@ deseq_starved[["ric"]] %>%
 plot_volcano(deseq_starved[["ric"]],
              mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
              "ric",
-             "ΔRICTOR Transcriptome Differential Expression (starved)")
+             "ΔRICTOR Transcriptome Differential Expression (starved)",
+             TX_XLIMS, TX_YLIMS)
 ```
 
 ### Phosphoproteome (ΔRICTOR starved)
@@ -749,7 +763,9 @@ mtorc3_phospho_starved_genes <- phospho_starved_meak7 %>%
 plot_volcano(phospho_starved_ric,
              mtorc1_phospho_starved_genes, mtorc2_phospho_starved_genes, mtorc3_phospho_starved_genes,
              "ric",
-             "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
+             "ΔRICTOR Phosphoproteome Differential Abundance (starved)", 
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔRICTOR starved)
@@ -798,7 +814,8 @@ deseq_nutri[["meak7"]] %>%
 plot_volcano(deseq_nutri[["meak7"]],
              mtorc1_tx_nutri_genes, mtorc2_tx_nutri_genes, mtorc3_tx_nutri_genes,
              "meak7",
-             "ΔMEAK7 Transcriptome Differential Expression (nutrient-fed)")
+             "ΔMEAK7 Transcriptome Differential Expression (nutrient-fed)",
+             TX_XLIMS, TX_YLIMS)
 ```
 
 ### Phosphoproteome (ΔMEAK7 nutrient-fed)
@@ -821,7 +838,9 @@ table(duplicated(phospho_nutri_meak7_full$symbol))
 plot_volcano(phospho_nutri_meak7,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "meak7",
-             "ΔMEAK7 Phosphoproteome Differential Abundance (nutrient-fed)", "phospho")
+             "ΔMEAK7 Phosphoproteome Differential Abundance (nutrient-fed)", 
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔMEAK7 nutrient-fed)
@@ -869,7 +888,8 @@ deseq_starved[["meak7"]] %>%
 plot_volcano(deseq_starved[["meak7"]],
              mtorc1_tx_starved_genes, mtorc2_tx_starved_genes, mtorc3_tx_starved_genes,
              "meak7",
-             "ΔMEAK7 Transcriptome Differential Expression (starved)")
+             "ΔMEAK7 Transcriptome Differential Expression (starved)",
+             TX_XLIMS, TX_YLIMS)
 ```
 
 ### Phosphoproteome (ΔMEAK7 starved)
@@ -892,7 +912,9 @@ table(duplicated(phospho_starved_meak7_full$symbol))
 plot_volcano(phospho_starved_meak7,
              mtorc1_phospho_starved_genes, mtorc2_phospho_starved_genes, mtorc3_phospho_starved_genes,
              "meak7",
-             "ΔMEAK7 Phosphoproteome Differential Abundance (starved)", "phospho")
+             "ΔMEAK7 Phosphoproteome Differential Abundance (starved)", 
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho")
 ```
 
 ### Phosphoproteome vs. transcriptome (ΔMEAK7 starved)
