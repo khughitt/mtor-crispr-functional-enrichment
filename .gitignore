@@ -1,8 +1,10 @@
 .snakemake
 .RData
+.ipynb_checkpoints
 *.html
 *.log
 *.pdf
 archive
 output
 config.yml
+pubmed/data
