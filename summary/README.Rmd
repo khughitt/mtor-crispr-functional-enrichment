@@ -192,12 +192,14 @@ if (!dir.exists(cfg$output_dir)) {
 
 ```{r load_uniprot_id_mapping}
 # load uniprot id mapping
-mapping <- read_tsv(cfg$uniprot_mapping, col_names = c("uniprotkb_ac", "field", "value"), show_col_types = FALSE)
+mapping <- read_tsv(cfg$uniprot_mapping, 
+                    col_names = c("uniprotkb_ac", "field", "value"), 
+                    show_col_types = FALSE)
 
 # limit to gene symbols and convert from long -> wide
 mapping <- mapping %>%
-  filter(field == 'Gene_Name') %>%
-  select(uniprotkb_ac, symbol=value)
+  filter(field == "Gene_Name") %>%
+  select(uniprotkb_ac, symbol = value)
 
 # drop the relatively small number of multimapped entries
 mapping <- mapping[!duplicated(mapping$uniprotkb_ac), ]
@@ -1034,10 +1036,11 @@ write.xlsx(deseq_tbls, file = tx_outfile)
 sessionInfo()
 ```
 
-Input data md5 sums:
+Input data MD5 sums:
 
 ```{r file_info, results='asis'}
 input_files <- c(phospho_nutri_infile,
+                 phospho_starved_infile,
                  cfg$uniprot_mapping,
                  file.path(deseq_dir, "condition_Rap_nutri_vs_v_nutri.tsv"),
                  file.path(deseq_dir, "condition_Ric_nutri_vs_v_nutri.tsv"),
