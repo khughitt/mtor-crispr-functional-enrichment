@@ -1,0 +1,1017 @@
+---
+title: "CRISPR-guided multiomics unveils direct mTOR inhibition of Hippo signaling through CDCP1: Summary of Transcriptomics / Phosphoproteomics analyses (PubMed Analysis)"
+output:
+  html_document:
+    df_print: kable
+    toc: true
+    toc_depth: 3
+  pdf_document:
+    df_print: kable
+    toc: true
+    toc_depth: 3
+    latex_engine: xelatex
+---
+
+# Overview
+
+Modified version of `README.Rmd` for depicting results related to the PubMed analysis.
+
+# Methods & Results
+
+## Setup
+
+```{r load_libraries, message = FALSE}
+library(annotables)
+library(tidyverse)
+library(yaml)
+library(RColorBrewer)
+library(openxlsx)
+library(knitr)
+
+# be more precise when printing summary tables
+options(digits = 10)
+
+# plot opts
+knitr::opts_chunk$set(
+  fig.width = 6,
+  fig.height = 3.6,
+  fig.retina = 1,
+  dpi = 192
+)
+
+if (opts_knit$get("rmarkdown.pandoc.to") == "latex") {
+  opts_chunk$set(dev = "cairo_pdf", dev.args = list(cairo_pdf = list(family = "Times New Roman")))
+}
+
+# volcano plot x & y axes limits
+TX_XLIMS <- list(-10, 10)
+TX_YLIMS <- list(0, 160)
+
+PHOSPHO_XLIMS <- list(-3, 3)
+PHOSPHO_YLIMS <- list(0, 14)
+
+# target? ["mtor"|"hippo"]
+PUBMED_TARGET = "mtor"
+
+if (PUBMED_TARGET == "mtor") {
+  plt_suffix <- "mTOR"
+  cmap <- list(c(0, 1), c("white", "purple"))
+} else {
+  plt_suffix <- "Hippo"
+  cmap <- list(c(0, 1), c("white", "orange"))
+}
+```
+
+```{r helper_func}
+#
+# plot_volcano
+#
+# Helper function to generate a static or interactive volcano plot
+#
+
+# modified version of the main volcano plot helper func that colors genes based on their associated
+# with Hippo/mTOR signaling in the literature
+plot_volcano <- function(dat, pubmed_gene_stats, plot_title, xlims, ylims, data_type = "tx",
+                         min_citations = 5,
+                         colormap = list(c(0, 1), c("white", "purple"))) {
+  dat <- dat %>%
+    mutate(log10pval = -log10(padj))
+
+  # filter by publication count
+  pubmed_gene_stats <- pubmed_gene_stats %>%
+    filter(num_articles_query >= min_citations)
+
+  # rename for consistency
+  if (data_type == "tx") {
+    dat <- dat %>%
+      rename(log2ratio = log2FoldChange)
+  }
+
+  # drop genes with missing values
+  dat <- dat[!is.na(dat$log2ratio) & !is.na(dat$log10pval), ]
+
+  # add pubmed pathway association score
+  dat <- dat %>%
+    left_join(pubmed_gene_stats, by = "symbol")
+
+  # drop genes with no associated mtor/hippo articles in the literature
+  dat <- dat[!is.na(dat$score), ]
+
+  # interactive plot (plotly)
+  if (opts_knit$get("rmarkdown.pandoc.to") == "html") {
+    library(plotly)
+
+    # helper func to draw vertical lines
+    # https://stackoverflow.com/a/34097929/554531
+    vline <- function(x = 0, color = "red") {
+      list(type = "line", y0 = 0, y1 = 1, yref = "paper", x0 = x, x1 = x,
+           line = list(color = color, dash = "dashed", width = 1))
+    }
+
+    if (data_type == "tx") {
+      hover_text <- ~paste("<b>", symbol, "</b><br><br>",
+                           ensgene, "<br><br>",
+                           "PubMed Score: ", score, "<br><br>",
+                           "<b>Adj. P-val:</b> ", padj, "<extra></extra>")
+    } else {
+      hover_text <- ~paste("<b>", symbol, "</b><br>",
+                           uniprot, "<br><br>",
+                           "PubMed Score: ", score, "<br><br>",
+                           "<b>Adj. P-val:</b> ", padj, "<extra></extra>")
+    }
+
+    fig <- plot_ly(data = dat,
+            x = ~log2ratio,
+            y = ~log10pval,
+            type = "scatter",
+            mode = "markers",
+            marker = list(
+              color = ~score,
+              size = ~score,
+              line = list(width = 0),
+              colorscale = colormap
+            ),
+            text = hover_text)
+
+    config(fig, toImageButtonOptions = list(format = "svg", filename = "volcano_plot", width = 1400, height = 1000, scale = 1)) %>%
+      layout(xaxis = list(range = xlims), yaxis = list(range = ylims)) %>%
+      layout(title = plot_title) %>%
+      layout(shapes = list(vline(-1), vline(1))) %>%
+      add_trace(type = "scatter", hovertemplate = "%{text}", showlegend = FALSE)
+
+  } else {
+    # static plot (ggplot2)
+    ggplot(data = dat, aes(x = log2ratio, y = log10pval, color = score)) +
+      geom_point() +
+      scale_colour_viridis(option = "plasma") +
+      ggtitle(plot_title) +
+      geom_vline(xintercept = c(-1, 1), color = "#FF4444") +
+      xlim(unlist(xlims)) +
+      ylim(unlist(ylims)) +
+      theme_bw()
+  }
+}
+```
+
+```{r load_config}
+cfg <- yaml::read_yaml("config/config.yml")
+
+if (!dir.exists(cfg$output_dir)) {
+  dir.create(cfg$output_dir, recursive = TRUE, mode = "0755")
+}
+```
+
+```{r load_uniprot_id_mapping}
+# load uniprot id mapping
+mapping <- read_tsv(cfg$uniprot_mapping,
+                    col_names = c("uniprotkb_ac", "field", "value"),
+                    show_col_types = FALSE)
+
+# limit to gene symbols and convert from long -> wide
+mapping <- mapping %>%
+  filter(field == "Gene_Name") %>%
+  select(uniprotkb_ac, symbol = value)
+
+# drop the relatively small number of multimapped entries
+mapping <- mapping[!duplicated(mapping$uniprotkb_ac), ]
+mapping <- mapping[!grepl(";", mapping$symbol), ]
+```
+
+```{r load_pubmed_data}
+# load pubtator analysis results
+if (PUBMED_TARGET == "mtor") {
+  pubmed_infile <- "../data/pubmed/mtor_article_gene_stats.csv"
+} else {
+  pubmed_infile <- "../data/pubmed/hippo_article_gene_stats.csv"
+}
+
+pubmed_gene_stats <- read_csv(pubmed_infile, show_col_types = FALSE)
+
+# exclude small number of genes with multiple entries to avoid ambiguity
+pubmed_gene_stats <- pubmed_gene_stats[!duplicated(pubmed_gene_stats$symbol), ]
+
+# clip and rescale pubmed score, in order to help improve contrast in the volcano plots
+pubmed_gene_stats$score <- pmin(pubmed_gene_stats$score,
+                                quantile(pubmed_gene_stats$score, 0.999))
+
+pubmed_gene_stats$score <- log10(pubmed_gene_stats$score + 1)
+
+pubmed_gene_stats$score <- (pubmed_gene_stats$score /
+                            max(pubmed_gene_stats$score)) * 10
+```
+
+```{r load_tx_data}
+deseq_dir <- file.path(cfg$data_dirs$rna, "deseq2")
+
+# load transcriptome deseq2 results for each of knockout and each nutrient condition
+deseq_nutri <- list(
+  "rap" = read_tsv(file.path(deseq_dir, "condition_Rap_nutri_vs_v_nutri.tsv"), show_col_types = FALSE),
+  "ric" = read_tsv(file.path(deseq_dir, "condition_Ric_nutri_vs_v_nutri.tsv"), show_col_types = FALSE),
+  "meak7" = read_tsv(file.path(deseq_dir, "condition_m7_nutri_vs_v_nutri.tsv"), show_col_types = FALSE)
+)
+
+deseq_starved <- list(
+  "rap" = read_tsv(file.path(deseq_dir, "condition_Rap_starved_vs_v_starved.tsv"), show_col_types = FALSE),
+  "ric" = read_tsv(file.path(deseq_dir, "condition_Ric_starved_vs_v_starved.tsv"), show_col_types = FALSE),
+  "meak7" = read_tsv(file.path(deseq_dir, "condition_m7_starved_vs_v_starved.tsv"), show_col_types = FALSE)
+)
+
+# compute average p-values across each pair of contrasts as well as the average for all three
+rap <- deseq_nutri[["rap"]] %>%
+  select(ensgene, symbol, padj_rap=padj)
+
+ric <- deseq_nutri[["ric"]] %>%
+  select(ensgene, padj_ric=padj)
+
+meak7 <- deseq_nutri[["meak7"]] %>%
+  select(ensgene, padj_meak7=padj)
+
+deseq_nutri[["combined"]] <- rap %>%
+  inner_join(ric, by="ensgene") %>%
+  inner_join(meak7, by="ensgene") %>%
+  na.omit() %>%
+  mutate(
+    padj_rap_ric = (padj_rap + padj_ric) / 2,
+    padj_rap_meak7= (padj_rap + padj_meak7) / 2,
+    padj_ric_meak7= (padj_ric + padj_meak7) / 2,
+    padj_all= (padj_rap + padj_ric + padj_meak7) / 3
+  ) %>%
+  arrange(padj_all)
+
+# same thing, but for the starved data
+rap <- deseq_starved[["rap"]] %>%
+  select(ensgene, symbol, padj_rap=padj)
+
+ric <- deseq_starved[["ric"]] %>%
+  select(ensgene, padj_ric=padj)
+
+meak7 <- deseq_starved[["meak7"]] %>%
+  select(ensgene, padj_meak7=padj)
+
+deseq_starved[["combined"]] <- rap %>%
+  inner_join(ric, by="ensgene") %>%
+  inner_join(meak7, by="ensgene") %>%
+  na.omit() %>%
+  mutate(
+    padj_rap_ric = (padj_rap + padj_ric) / 2,
+    padj_rap_meak7= (padj_rap + padj_meak7) / 2,
+    padj_ric_meak7= (padj_ric + padj_meak7) / 2,
+    padj_all= (padj_rap + padj_ric + padj_meak7) / 3
+  ) %>%
+  arrange(padj_all)
+```
+
+```{r load_phospho_nutri_data}
+# load phospho nutrient-fed proteome discoverer results
+phospho_nutri_infile <- file.path(cfg$data_dirs$phospho, "phospho-peptides-nutri.tsv")
+
+phospho_nutri <- read_tsv(phospho_nutri_infile, show_col_types = FALSE) %>%
+  select(uniprot = `Master Protein Accessions`,
+         mod = Modifications,
+         mod_proteins = `Modifications in Master Proteins`,
+         rap_log2ratio = `Abundance Ratio (log2): (Rap_del_1R) / (V_del_4R)`,
+         rap_padj = `Abundance Ratio Adj. P-Value: (Rap_del_1R) / (V_del_4R)`,
+         rap_pval = `Abundance Ratio P-Value: (Rap_del_1R) / (V_del_4R)`,
+         ric_log2ratio = `Abundance Ratio (log2): (Ric_del_SR) / (V_del_4R)`,
+         ric_padj = `Abundance Ratio Adj. P-Value: (Ric_del_SR) / (V_del_4R)`,
+         ric_pval = `Abundance Ratio P-Value: (Ric_del_SR) / (V_del_4R)`,
+         meak7_log2ratio = `Abundance Ratio (log2): (M7_del_SR) / (V_del_4R)`,
+         meak7_padj = `Abundance Ratio Adj. P-Value: (M7_del_SR) / (V_del_4R)`,
+         meak7_pval = `Abundance Ratio P-Value: (M7_del_SR) / (V_del_4R)`)
+
+# add gene symbols
+phospho_nutri$symbol <- mapping$symbol[match(phospho_nutri$uniprot, mapping$uniprotkb_ac)]
+
+phospho_nutri <- phospho_nutri %>%
+  select(uniprot, symbol, everything())
+
+# limit to phospho entries
+phospho_mask <- grepl("Phospho", phospho_nutri$mod)
+table(phospho_mask)
+
+phospho_nutri <- phospho_nutri[phospho_mask, ]
+
+# add pairwise and three-way average p-values
+phospho_nutri <- phospho_nutri %>%
+  mutate(
+    padj_rap_ric = (rap_padj + ric_padj) / 2,
+    padj_rap_meak7 = (rap_padj + meak7_padj) / 2,
+    padj_ric_meak7 = (ric_padj + meak7_padj) / 2,
+    padj_all = (rap_padj + ric_padj + meak7_padj) / 3
+  )
+
+dim(phospho_nutri)
+```
+hippo
+```{r load_phospho_starved_data}
+# load phospho starved proteome discoverer results
+phospho_starved_infile <- file.path(cfg$data_dirs$phospho, "phospho-peptides-starved.tsv")
+
+phospho_starved <- read_tsv(phospho_starved_infile, show_col_types = FALSE) %>%
+  select(uniprot = `Master Protein Accessions`,
+         mod = Modifications,
+         mod_proteins = `Modifications in Master Proteins`,
+         rap_ratio = `Abundance Ratio: (Rap_del_1R) / (V_del_4R)`,
+         rap_padj = `Abundance Ratio Adj. P-Value: (Rap_del_1R) / (V_del_4R)`,
+         ric_ratio = `Abundance Ratio: (Ric_del_SR) / (V_del_4R)`,
+         ric_padj = `Abundance Ratio Adj. P-Value: (Ric_del_SR) / (V_del_4R)`,
+         meak7_ratio = `Abundance Ratio: (M7_del_SR) / (V_del_4R)`,
+         meak7_padj = `Abundance Ratio Adj. P-Value: (M7_del_SR) / (V_del_4R)`)
+
+# log2 transform abundance ratios to be consistent with the nutrient-fed sample results
+phospho_starved <- phospho_starved %>%
+  mutate(rap_log2ratio = log2(rap_ratio),
+         ric_log2ratio = log2(ric_ratio),
+         meak7_log2ratio = log2(meak7_ratio)) %>%
+  select(-rap_ratio, -ric_ratio, -meak7_ratio)
+
+# add gene symbols
+phospho_starved$symbol <- mapping$symbol[match(phospho_starved$uniprot, mapping$uniprotkb_ac)]
+
+phospho_starved <- phospho_starved %>%
+  select(uniprot, symbol, everything())
+
+# limit to phospho entries
+phospho_mask <- grepl("Phospho", phospho_starved$mod)
+table(phospho_mask)
+
+phospho_starved <- phospho_starved[phospho_mask, ]
+
+# add pairwise and three-way average p-values
+phospho_starved <- phospho_starved %>%
+  mutate(
+    padj_rap_ric = (rap_padj + ric_padj) / 2,
+    padj_rap_meak7 = (rap_padj + meak7_padj) / 2,
+    padj_ric_meak7 = (ric_padj + meak7_padj) / 2,
+    padj_all = (rap_padj + ric_padj + meak7_padj) / 3
+  )
+
+dim(phospho_starved)
+```
+
+```{r created_simplified_phospho_results}
+# create simplified versions of Proteome Discoverer results
+phospho_nutri_rap_full <- phospho_nutri %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, pval = rap_pval, padj = rap_padj) %>%
+  filter(!is.na(padj))
+
+phospho_starved_rap_full <- phospho_starved %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = rap_log2ratio, padj = rap_padj) %>%
+  filter(!is.na(padj))
+
+phospho_nutri_ric_full <- phospho_nutri %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, pval = ric_pval, padj = ric_padj) %>%
+  filter(!is.na(padj))
+
+phospho_starved_ric_full <- phospho_starved %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = ric_log2ratio, padj = ric_padj) %>%
+  filter(!is.na(padj))
+
+phospho_nutri_meak7_full <- phospho_nutri %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, pval = meak7_pval, padj = meak7_padj) %>%
+  filter(!is.na(padj))
+
+phospho_starved_meak7_full <- phospho_starved %>%
+  select(uniprot, symbol, mod_proteins, log2ratio = meak7_log2ratio, padj = meak7_padj) %>%
+  filter(!is.na(padj))
+```
+
+```{r collapse_phospho_sites}
+# For each result set, create a table of the most significant phosphorylation sites associated with
+# each gene
+phospho_nutri_rap <- phospho_nutri_rap_full %>%
+  group_by(symbol) %>%
+  arrange(pval) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_starved_rap <- phospho_starved_rap_full %>%
+  group_by(symbol) %>%
+  arrange(padj) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_nutri_ric <- phospho_nutri_ric_full %>%
+  group_by(symbol) %>%
+  arrange(pval) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_starved_ric <- phospho_starved_ric_full %>%
+  group_by(symbol) %>%
+  arrange(padj) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_nutri_meak7 <- phospho_nutri_meak7_full %>%
+  group_by(symbol) %>%
+  arrange(pval) %>%
+  slice(1) %>%
+  ungroup()
+
+phospho_starved_meak7 <- phospho_starved_meak7_full %>%
+  group_by(symbol) %>%
+  arrange(padj) %>%
+  slice(1) %>%
+  ungroup()
+```
+
+## ΔRPTOR nutrient-fed
+
+### Transcriptome (ΔRPTOR nutrient-fed)
+
+```{r rptor_nutri_tx_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(deseq_nutri[["rap"]],
+             pubmed_gene_stats,
+             sprintf("ΔRPTOR Transcriptome Differential Expression (nutrient-fed, %s)",
+             plt_suffix),
+             TX_XLIMS, TX_YLIMS,
+             colormap = cmap)
+```
+
+### Phosphoproteome (ΔRPTOR nutrient-fed)
+
+```{r rptor_nutri_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(phospho_nutri_rap,
+                 pubmed_gene_stats,
+             sprintf("ΔRPTOR Phosphoproteome Differential Abundance (nutrient-fed, %s)", plt_suffix),
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho",
+             colormap = cmap)
+```
+
+### Phosphoproteome vs. transcriptome (ΔRPTOR nutrient-fed)
+
+Are there genes which were found to be differentially expressed in the ΔRPTOR transcriptome data,
+which also appear to encode proteins that are differentially phosphorylated?
+
+```{r tx_vs_phospho}
+phospho_nutri_rap$tx_pval <- deseq_nutri[["rap"]]$pvalue[match(phospho_nutri_rap$symbol, deseq_nutri[["rap"]]$symbol)]
+phospho_nutri_rap$tx_padj <- deseq_nutri[["rap"]]$padj[match(phospho_nutri_rap$symbol, deseq_nutri[["rap"]]$symbol)]
+
+# since there are a large number of significant genes in the tx results, rather than simply looking
+# at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
+# be compared
+phospho_nutri_rap$phospho_pval_rank <- rank(phospho_nutri_rap$pval)
+phospho_nutri_rap$tx_pval_rank <- rank(phospho_nutri_rap$tx_pval)
+
+phospho_nutri_rap <- phospho_nutri_rap %>%
+  mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
+```
+
+## ΔRPTOR starved
+
+### Transcriptome (ΔRPTOR starved)
+
+```{r rptor_starved_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(deseq_starved[["rap"]],
+                 pubmed_gene_stats,
+                 sprintf("ΔRPTOR Transcriptome Differential Expression (starved, %s)", plt_suffix),
+                 TX_XLIMS, TX_YLIMS, colormap = cmap)
+```
+
+### Phosphoproteome (ΔRPTOR starved)
+
+```{r rptor_starved_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(phospho_starved_rap,
+             pubmed_gene_stats,
+             sprintf("ΔRPTOR Phosphoproteome Differential Abundance (starved, %s)", plt_suffix),
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho", colormap = cmap)
+```
+
+### Phosphoproteome vs. transcriptome (ΔRPTOR starved)
+
+Are there genes which were found to be differentially expressed in the ΔRPTOR transcriptome data,
+which also appear to encode proteins that are differentially phosphorylated?
+
+```{r tx_vs_phospho}
+phospho_starved_rap$tx_pval <- deseq_starved[["rap"]]$pvalue[match(phospho_starved_rap$symbol, deseq_starved[["rap"]]$symbol)]
+phospho_starved_rap$tx_padj <- deseq_starved[["rap"]]$padj[match(phospho_starved_rap$symbol, deseq_starved[["rap"]]$symbol)]
+
+# since there are a large number of significant genes in the tx results, rather than simply looking
+# at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
+# be compared
+# phospho_starved_rap$phospho_pval_rank <- rank(phospho_starved_rap$pval)
+phospho_starved_rap$phospho_pval_rank <- rank(phospho_starved_rap$padj)
+phospho_starved_rap$tx_pval_rank <- rank(phospho_starved_rap$tx_pval)
+
+phospho_starved_rap <- phospho_starved_rap %>%
+  mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
+```
+
+Which genes are present and appear significant in both datasets?
+
+```{r rap_starved_common_sig}
+phospho_starved_rap %>%
+  filter(!is.na(tx_pval) & !is.na(symbol)) %>%
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
+```
+
+## ΔRICTOR nutrient-fed
+
+### Transcriptome (ΔRICTOR nutrient-fed)
+
+```{r ric_nutri_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(deseq_nutri[["ric"]],
+                 pubmed_gene_stats,
+             sprintf("ΔRICTOR Transcriptome Differential Expression (nutrient-fed, %s)", plt_suffix),
+             TX_XLIMS, TX_YLIMS, colormap = cmap)
+```
+
+### Phosphoproteome (ΔRICTOR nutrient-fed)
+
+```{r ric_nutri_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(phospho_nutri_ric,
+                 pubmed_gene_stats,
+             sprintf("ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed, %s)", plt_suffix),
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho", colormap = cmap)
+```
+
+### Phosphoproteome vs. transcriptome (ΔRICTOR nutrient-fed)
+
+Are there genes which were found to be differentially expressed in the ΔRICTOR transcriptome data,
+which also appear to encode proteins that are differentially phosphorylated?
+
+```{r tx_vs_phospho}
+phospho_nutri_ric$tx_pval <- deseq_nutri[["ric"]]$pvalue[match(phospho_nutri_ric$symbol, deseq_nutri[["ric"]]$symbol)]
+phospho_nutri_ric$tx_padj <- deseq_nutri[["ric"]]$padj[match(phospho_nutri_ric$symbol, deseq_nutri[["ric"]]$symbol)]
+
+# since there are a large number of significant genes in the tx results, rather than simply looking
+# at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
+# be compared
+phospho_nutri_ric$phospho_pval_rank <- rank(phospho_nutri_ric$pval)
+phospho_nutri_ric$tx_pval_rank <- rank(phospho_nutri_ric$tx_pval)
+
+phospho_nutri_ric <- phospho_nutri_ric %>%
+  mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
+```
+
+Which genes are present and appear significant in both datasets?
+
+```{r ric_nutri_common_sig}
+phospho_nutri_ric %>%
+  filter(!is.na(tx_pval) & !is.na(symbol)) %>%
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
+```
+
+## ΔRICTOR starved
+
+### Transcriptome (ΔRICTOR starved)
+
+```{r rictor_starved_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(deseq_starved[["ric"]],
+                 pubmed_gene_stats,
+                 sprintf("ΔRICTOR Transcriptome Differential Expression (starved, %s)", plt_suffix),
+                 TX_XLIMS, TX_YLIMS, colormap = cmap)
+```
+
+### Phosphoproteome (ΔRICTOR starved)
+
+```{r rictor_starved_volcano_plot, message = FALSE, warning = FALSE}
+mtorc1_phospho_starved_genes <- phospho_starved_rap %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc2_phospho_starved_genes <- phospho_starved_ric %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+mtorc3_phospho_starved_genes <- phospho_starved_meak7 %>%
+  arrange(padj) %>%
+  head(cfg$volcano_num_sig) %>%
+  pull(symbol)
+
+plot_volcano(phospho_starved_ric,
+                 pubmed_gene_stats,
+                 sprintf("ΔRICTOR Phosphoproteome Differential Abundance (starved, %s)", plt_suffix),
+                 PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+                 "phospho", colormap = cmap)
+```
+
+### Phosphoproteome vs. transcriptome (ΔRICTOR starved)
+
+Are there genes which were found to be differentially expressed in the ΔRICTOR transcriptome data,
+which also appear to encode proteins that are differentially phosphorylated?
+
+```{r tx_vs_phospho}
+phospho_starved_ric$tx_pval <- deseq_starved[["ric"]]$pvalue[match(phospho_starved_ric$symbol, deseq_starved[["ric"]]$symbol)]
+phospho_starved_ric$tx_padj <- deseq_starved[["ric"]]$padj[match(phospho_starved_ric$symbol, deseq_starved[["ric"]]$symbol)]
+
+# since there are a large number of significant genes in the tx results, rather than simply looking
+# at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
+# be compared
+# phospho_starved_ric$phospho_pval_rank <- rank(phospho_starved_ric$pval)
+phospho_starved_ric$phospho_pval_rank <- rank(phospho_starved_ric$padj)
+phospho_starved_ric$tx_pval_rank <- rank(phospho_starved_ric$tx_pval)
+
+phospho_starved_ric <- phospho_starved_ric %>%
+  mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
+```
+
+Which genes are present and appear significant in both datasets?
+
+```{r ric_starved_common_sig}
+phospho_starved_ric %>%
+  filter(!is.na(tx_pval) & !is.na(symbol)) %>%
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
+```
+
+## ΔMEAK7 nutrient-fed
+
+### Transcriptome (ΔMEAK7 nutrient-fed)
+
+```{r meak7_nutri_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(deseq_nutri[["meak7"]],
+                 pubmed_gene_stats,
+                 sprintf("ΔMEAK7 Transcriptome Differential Expression (nutrient-fed, %s)",
+                         plt_suffix),
+                 TX_XLIMS, TX_YLIMS, colormap = cmap)
+```
+
+### Phosphoproteome (ΔMEAK7 nutrient-fed)
+
+```{r meak7_nutri_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(phospho_nutri_meak7,
+                 pubmed_gene_stats,
+                 sprintf("ΔMEAK7 Phosphoproteome Differential Abundance (nutrient-fed, %s)",
+                         plt_suffix),
+                 PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+                 "phospho", colormap = cmap)
+```
+
+### Phosphoproteome vs. transcriptome (ΔMEAK7 nutrient-fed)
+
+Are there genes which were found to be differentially expressed in the ΔMEAK7 transcriptome data,
+which also appear to encode proteins that are differentially phosphorylated?
+
+```{r tx_vs_phospho}
+phospho_nutri_meak7$tx_pval <- deseq_nutri[["meak7"]]$pvalue[match(phospho_nutri_meak7$symbol, deseq_nutri[["meak7"]]$symbol)]
+phospho_nutri_meak7$tx_padj <- deseq_nutri[["meak7"]]$padj[match(phospho_nutri_meak7$symbol, deseq_nutri[["meak7"]]$symbol)]
+
+# since there are a large number of significant genes in the tx results, rather than simply looking
+# at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
+# be compared
+phospho_nutri_meak7$phospho_pval_rank <- rank(phospho_nutri_meak7$pval)
+phospho_nutri_meak7$tx_pval_rank <- rank(phospho_nutri_meak7$tx_pval)
+
+phospho_nutri_meak7 <- phospho_nutri_meak7 %>%
+  mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
+```
+
+Which genes are present and appear significant in both datasets?
+
+```{r meak7_nutri_common_sig}
+phospho_nutri_meak7 %>%
+  filter(!is.na(tx_pval) & !is.na(symbol)) %>%
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
+```
+
+## ΔMEAK7 starved
+
+### Transcriptome (ΔMEAK7 starved)
+
+```{r rictor_starved_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(deseq_starved[["meak7"]],
+             pubmed_gene_stats,
+             sprintf("ΔMEAK7 Transcriptome Differential Expression (starved, plt_suffix)", plt_suffix),
+             TX_XLIMS, TX_YLIMS, colormap = cmap)
+```
+
+### Phosphoproteome (ΔMEAK7 starved)
+
+```{r meak7_starved_volcano_plot, message = FALSE, warning = FALSE}
+plot_volcano(phospho_starved_meak7,
+             pubmed_gene_stats,
+             sprintf("ΔMEAK7 Phosphoproteome Differential Abundance (starved, %s)", plt_suffix),
+             PHOSPHO_XLIMS, PHOSPHO_YLIMS,
+             "phospho", colormap = cmap)
+```
+
+### Phosphoproteome vs. transcriptome (ΔMEAK7 starved)
+
+Are there genes which were found to be differentially expressed in the ΔMEAK7 transcriptome data,
+which also appear to encode proteins that are differentially phosphorylated?
+
+```{r tx_vs_phospho}
+phospho_starved_meak7$tx_pval <- deseq_starved[["meak7"]]$pvalue[match(phospho_starved_meak7$symbol, deseq_starved[["meak7"]]$symbol)]
+phospho_starved_meak7$tx_padj <- deseq_starved[["meak7"]]$padj[match(phospho_starved_meak7$symbol, deseq_starved[["meak7"]]$symbol)]
+
+# since there are a large number of significant genes in the tx results, rather than simply looking
+# at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
+# be compared
+# phospho_starved_meak7$phospho_pval_rank <- rank(phospho_starved_meak7$pval)
+phospho_starved_meak7$phospho_pval_rank <- rank(phospho_starved_meak7$padj)
+phospho_starved_meak7$tx_pval_rank <- rank(phospho_starved_meak7$tx_pval)
+
+phospho_starved_meak7 <- phospho_starved_meak7 %>%
+  mutate(average_pval_rank = (phospho_pval_rank + tx_pval_rank) / 2)
+```
+
+Which genes are present and appear significant in both datasets?
+
+```{r meak7_starved_common_sig}
+phospho_starved_meak7 %>%
+  filter(!is.na(tx_pval) & !is.na(symbol)) %>%
+  filter(padj <= 0.01 & tx_padj <= 0.01) %>%
+  arrange(average_pval_rank) %>%
+  head(cfg$table_max_rows)
+```
+
+## Commonly affected genes
+
+Nutrient-fed:
+
+```{r tx_nutri_common_genes}
+deseq_nutri[["combined"]] %>%
+  head(cfg$table_max_rows)
+```
+
+Starved:
+
+```{r tx_starved_common_genes}
+deseq_starved[["combined"]] %>%
+  head(cfg$table_max_rows)
+```
+
+## Commonly affected phosphorylation sites
+
+Nutrient-fed:
+
+```{r phospho_nutri_common_genes}
+phospho_nutri %>%
+  arrange(padj_all) %>%
+  head(cfg$table_max_rows) %>%
+  kable(digits = 3)
+```
+
+Starved:
+
+```{r phospho_starved_common_genes}
+phospho_starved %>%
+  arrange(padj_all) %>%
+  head(cfg$table_max_rows) %>%
+  kable(digits = 3)
+```
+
+## Hippo- and mTOR-associated literature genes
+
+For each of the knockouts, how many of the affected genes have been associated with Hippo/mTOR in
+the literature?
+
+Below, the ratio of genes co-ocurring with "mTOR" or "Hippo" in at least two articles in the
+Pubtator dataset is shown, relative to the total number of significant genes for the Phospho/Tx
+experiment.
+
+Note: for the phospho data, significant peptides which could not be mapped to a gene are excluded
+from consideration.
+
+```{r lit_comparison_phospho, results = "asis"}
+phospho_nutri_rap_sig <- phospho_nutri_rap %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+phospho_nutri_ric_sig <- phospho_nutri_ric %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+phospho_nutri_meak7_sig <- phospho_nutri_meak7 %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+phospho_starved_rap_sig <- phospho_starved_rap %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+phospho_starved_ric_sig <- phospho_starved_ric %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+phospho_starved_meak7_sig <- phospho_starved_meak7 %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+txt <- c(
+  sprintf("- Hippo-associated genes in Phospho Nutrient-fed RPTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% phospho_nutri_rap_sig), length(phospho_nutri_rap_sig)),
+  sprintf("- Hippo-associated genes in Phospho Nutrient-fed RICTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% phospho_nutri_ric_sig), length(phospho_nutri_ric_sig)),
+  sprintf("- Hippo-associated genes in Phospho Nutrient-fed MEAK7: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% phospho_nutri_meak7_sig), length(phospho_nutri_meak7_sig)),
+  sprintf("- Hippo-associated genes in Phospho Starved RPTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% phospho_starved_rap_sig), length(phospho_starved_rap_sig)),
+  sprintf("- Hippo-associated genes in Phospho Starved RICTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% phospho_starved_ric_sig), length(phospho_starved_ric_sig)),
+  sprintf("- Hippo-associated genes in Phospho Starved MEAK7: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% phospho_starved_meak7_sig), length(phospho_starved_meak7_sig))
+)
+
+cat(paste0(txt, collapse = ""))
+```
+
+```{r lit_comparison_tx, results = "asis"}
+tx_nutri_rap_sig <- deseq_nutri[["rap"]] %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+tx_nutri_ric_sig <- deseq_nutri[["ric"]] %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+tx_nutri_meak7_sig <- deseq_nutri[["meak7"]] %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+tx_starved_rap_sig <- deseq_starved[["rap"]] %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+tx_starved_ric_sig <- deseq_starved[["ric"]] %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+tx_starved_meak7_sig <- deseq_starved[["meak7"]] %>%
+  filter(!is.na(symbol)) %>%
+  filter(padj < 0.05) %>%
+  pull(symbol)
+
+txt <- c(
+  sprintf("- Hippo-associated genes in Tx Nutrient-fed RPTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% tx_nutri_rap_sig),
+          length(tx_nutri_rap_sig)),
+  sprintf("- Hippo-associated genes in Tx Nutrient-fed RICTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% tx_nutri_ric_sig),
+          length(tx_nutri_ric_sig)),
+  sprintf("- Hippo-associated genes in Tx Nutrient-fed MEAK7: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% tx_nutri_meak7_sig),
+          length(tx_nutri_meak7_sig)),
+  sprintf("- Hippo-associated genes in Tx Starved RPTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% tx_starved_rap_sig),
+          length(tx_starved_rap_sig)),
+  sprintf("- Hippo-associated genes in Tx Starved RICTOR: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% tx_starved_ric_sig),
+          length(tx_starved_ric_sig)),
+  sprintf("- Hippo-associated genes in Tx Starved MEAK7: %d / %d\n",
+          sum(pubmed_gene_stats$symbol %in% tx_starved_meak7_sig),
+          length(tx_starved_meak7_sig))
+)
+
+cat(paste0(txt, collapse = ""))
+```
+
+Next, to get a feeling for how strong the Hippo/mTOR literature associations are, for each of the
+knockout result sets, a similar number of randomly selected protein coding genes are chosen, and the
+number of genes co-mentioned alongside of mTOR/Hippo are recorded. 
+
+This is then repeated multiple times, and the average of the result is plotted side-by-side with the
+actual observed literature co-occurrence counts.
+
+Althought a number of permutations are performed to get a reasonable estimate of the average, this
+is still ultimately just meant as an imperfect qualitative assessment of possible enrichment.
+
+```{r lit_permutation_enrichment}
+# list of inferred significant genes associated with each experiment
+sig_genes_list <- list(
+  "Phosphoproteome (ΔRPTOR nutri)" = phospho_nutri_rap_sig,
+  "Phosphoproteome (ΔRICTOR nutri)" = phospho_nutri_ric_sig,
+  "Phosphoproteome (ΔMEAK7 nutri)" = phospho_nutri_meak7_sig,
+  "Phosphoproteome (ΔRPTOR starved)" = phospho_starved_rap_sig,
+  "Phosphoproteome (ΔRICTOR starved)" = phospho_starved_ric_sig,
+  "Phosphoproteome (ΔMEAK7 starved)" = phospho_starved_meak7_sig,
+  "Transcriptome (ΔRPTOR nutri)" = tx_nutri_rap_sig,
+  "Transcriptome (ΔRICTOR nutri)" = tx_nutri_ric_sig,
+  "Transcriptome (ΔMEAK7 nutri)" = tx_nutri_meak7_sig,
+  "Transcriptome (ΔRPTOR starved)" = tx_starved_rap_sig,
+  "Transcriptome (ΔRICTOR starved)" = tx_starved_ric_sig,
+  "Transcriptome (ΔMEAK7 starved)" = tx_starved_meak7_sig
+)
+
+# sample from all protein-coding genes in GRCh38
+protein_coding_genes <- grch38 %>%
+  filter(biotype == "protein_coding") %>%
+  pull(symbol)
+
+
+# function to perform permutation test
+lit_permute_test <- function(sig_genes, protein_coding_genes, pubmed_gene_stats, num_iter = 1000) {
+  num_genes <- length(sig_genes)
+
+  # vector to keep track to counts for each permutation iteration
+  random_totals <- c()
+
+  for (i in seq_len(num_iter)) {
+    random_genes <- sample(protein_coding_genes, num_genes)
+
+    # get the total number of mTOR/Hippo associated articles for the target gene set
+    random_num_articles <- pubmed_gene_stats %>%
+      filter(symbol %in% random_genes) %>%
+      pull(num_articles_query) %>%
+      sum()
+
+    random_totals <- c(random_totals, random_num_articles)
+  }
+
+  return(mean(random_totals))
+}
+
+set.seed(1)
+
+random_counts <- c()
+obs_counts <- c()
+
+for (expt in names(sig_genes_list)) {
+  random_count <- lit_permute_test(sig_genes_list[[expt]], protein_coding_genes, pubmed_gene_stats)
+  random_counts <- c(random_counts, random_count)
+
+  obs_count <- pubmed_gene_stats %>%
+      filter(symbol %in% sig_genes_list[[expt]]) %>%
+      pull(num_articles_query) %>%
+      sum()
+  obs_counts <- c(obs_counts, obs_count)
+}
+```
+
+```{r lit_permutation_enrichment_fig}
+permute_df <- tibble(
+  experiment = names(sig_genes_list),
+  random = random_counts,
+  observed = obs_counts,
+  data_type = c(rep("Phosphoproteome", 6), rep("Transcriptome", 6)),
+  knockout = rep(c("RPTOR", "RICTOR", "MEAK7"), 4),
+  nutrient = rep(c(rep("nutri", 3), rep("starved", 3)), 2)
+)
+
+permute_df <- permute_df %>%
+  pivot_longer(c("random", "observed"), names_to = "target", values_to = "num_articles")
+
+permute_phospho <- permute_df %>%
+  filter(data_type == "Phosphoproteome")
+
+permute_tx <- permute_df %>%
+  filter(data_type == "Transcriptome")
+
+ggplot(permute_phospho, aes(x = target, y = num_articles)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(vars(knockout), vars(nutrient)) +
+  ggtitle(sprintf("%s literature enrichment (Phosphoproteome)", plt_suffix)) +
+  xlab("") +
+  ylab(sprintf("# %s associated articles", plt_suffix))
+
+ggplot(permute_tx, aes(x = target, y = num_articles)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_grid(vars(knockout), vars(nutrient)) +
+  ggtitle(sprintf("%s literature enrichment (Transcriptome)", plt_suffix)) +
+  xlab("") +
+  ylab(sprintf("# %s associated articles", plt_suffix))
+```
+
+# Session Info
+
+```{r session_info}
+sessionInfo()
+```
+
+Input data MD5 sums:
+
+```{r file_info, results="asis"}
+input_files <- c(phospho_nutri_infile,
+                 phospho_starved_infile,
+                 cfg$uniprot_mapping,
+                 pubmed_infile,
+                 file.path(deseq_dir, "condition_Rap_nutri_vs_v_nutri.tsv"),
+                 file.path(deseq_dir, "condition_Ric_nutri_vs_v_nutri.tsv"),
+                 file.path(deseq_dir, "condition_m7_nutri_vs_v_nutri.tsv"),
+                 file.path(deseq_dir, "condition_Rap_starved_vs_v_starved.tsv"),
+                 file.path(deseq_dir, "condition_Ric_starved_vs_v_starved.tsv"),
+                 file.path(deseq_dir, "condition_m7_starved_vs_v_starved.tsv"))
+
+out <- ""
+
+for (file in input_files) {
+  out <- paste0(out, sprintf("- **%s**: %s\n", basename(file), tools::md5sum(file)))
+}
+
+cat(out)
+```
