@@ -4,22 +4,21 @@
 
 This repo contains code for the RNA-Seq and phosphoproteomics analysis portions of the paper
 "CRISPR-guided multiomics unveils direct mTOR inhibition of Hippo signaling through CDCP1" (Nguyen
-_et al._, 2022)
+_et al._, 2023)
 
-The code has been organized into several task-specific Snakemake pipelines:
+The code has been organized into several task-specific directories:
 
 1. RNA-Seq data preparation and transcript abundance estimation (`tx/data-prep`)
-2. RNA-Seq differential expression & enrichment analysis (`tx/deseq2`)
-3. Phosphoproteomics differential abundance analysis (`phospho/proteome-discoverer`)
-4. Phosphoproteomics enrichment analysis (`phospho/gsea`)
+2. RNA-Seq differential expression & functional enrichment analysis (`tx/deseq2`)
+3. Phosphoproteomics functional enrichment analysis (`phospho/`)
+4. PubMed mTOR/Hippo gene co-occurrence analysis (`pubmed/`)
+5. Summary report (`summary/`)
 
-Instructions for how to configure and run each pipeline are contained in `README.md` files found in
-each of the corresponding subdirectories.
+The RNA-Seq analyses were performed using [Snakemake](https://snakemake.readthedocs.io/en/stable/)
+pipelines.
 
-Two additional analyses were performed in Jupyter notebook and RMarkdown, respectively:
-
-5. Pubmed mTOR/Hippo gene co-occurrence (`pubmed`)
-6. Results summary (`summary`)
+The phosphoproteomics analysis and summary report are provided as RMarkdown files, while the PubMed
+literature analysis is provided as a jupyter notebook.
 
 In general, efforts have been made to use open-source libraries and to share all relevant analysis
 code in this repo, in order to clearly document what has been done and to make it possible to
