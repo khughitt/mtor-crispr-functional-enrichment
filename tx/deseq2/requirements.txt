@@ -1,3 +1,5 @@
+python>=3.10
+r-base>=4.2.0
 snakemake-minimal
 subread
 frictionless
@@ -5,12 +7,13 @@ pyyaml
 pandas
 seaborn
 bioconductor-deseq2
-bioconductor-fgsea
+bioconductor-clusterprofiler
 bioconductor-gseabase
 bioconductor-sva
 r-annotables
 r-ashr
 r-nmf
+r-openxlsx
 r-tidyverse
 r-viridis
 r-uwot

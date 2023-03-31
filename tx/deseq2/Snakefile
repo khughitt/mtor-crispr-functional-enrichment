@@ -39,15 +39,18 @@ rule all:
         os.path.join(config['output_dir'], "deseq2/summary.tsv"),
         os.path.join(config['output_dir'], "fig/raw/raw-counts-sample-umap.png"),
         os.path.join(config['output_dir'], "fig/batch-adjusted/batch-adjusted-counts-sample-umap.png"),
-        expand(os.path.join(config['output_dir'], "fgsea/{contrast}.tsv"), contrast=contrasts)
+        expand(os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.tsv"), contrast=contrasts)
 
-rule fgsea:
+rule functional_enrichment:
     input:
         os.path.join(config['output_dir'], "deseq2/{contrast}.tsv")
     output:
-        os.path.join(config['output_dir'], "fgsea/{contrast}.tsv")
+        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.tsv"),
+        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_overrep_upreg.tsv"),
+        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_overrep_downreg.tsv"),
+        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_function_enrichment.xlsx")
     script:
-        "scripts/run_fgsea.R"
+        "scripts/run_functional_enrichment.R"
 
 rule deseq2:
     input:
