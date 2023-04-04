@@ -46,7 +46,8 @@ rule functional_enrichment:
         os.path.join(config['output_dir'], "deseq2/{contrast}.tsv")
     output:
         os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.tsv"),
-        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.xlsx")
+        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.xlsx"),
+        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.png")
     script:
         "scripts/run_functional_enrichment.R"
 

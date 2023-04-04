@@ -41,11 +41,18 @@ gsea_res <- GSEA(gene_scores,
                  pvalueCutoff = cfg$min_padj,
                  nPermSimple = cfg$nperm)
 
-gsea_res <- gsea_res@result %>%
+gsea_res_df <- gsea_res@result %>%
   arrange(p.adjust)
 
-write_tsv(gsea_res, snakemake@output[[1]])
+# save result as .tsv
+write_tsv(gsea_res_df, snakemake@output[[1]])
 
 # create a combined xlsx file with results
-tbls = list("GSEA" = gsea_res)
-write.xlsx(tbls, file = snakemake@output[[4]])
+tbls = list("GSEA" = gsea_res_df)
+write.xlsx(tbls, file = snakemake@output[[2]])
+
+# generate plot of significant results
+dotplot(gsea_res) +
+  ggplot2::xlim(0, 0.8)
+
+ggsave(snakemake@output[[3]], width = 1080, height = 800, units = "px", dpi = 192)
