@@ -1,5 +1,5 @@
 """
-Nguyen22 CRISPR-guided Multi-omics: RNA-Seq differential expression & functional enrichment
+Nguyen23 CRISPR-guided Multi-omics: RNA-Seq differential expression & functional enrichment
 V. Keith Hughitt
 
 Uses the HISAT2 mapped reads to perform:
@@ -46,9 +46,7 @@ rule functional_enrichment:
         os.path.join(config['output_dir'], "deseq2/{contrast}.tsv")
     output:
         os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.tsv"),
-        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_overrep_upreg.tsv"),
-        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_overrep_downreg.tsv"),
-        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_function_enrichment.xlsx")
+        os.path.join(config['output_dir'], "functional_enrichment/{contrast}_gsea.xlsx")
     script:
         "scripts/run_functional_enrichment.R"
 

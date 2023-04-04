@@ -107,16 +107,3 @@ aheatmap(spearman_mat,
          annRow = sample_mdata[, 1:2], annCol = sample_mdata[, 3],
          color = viridis(100), main = "Sample Correlation Heatmap (Spearman)",
          filename=snakemake@output[[5]])
-
-# store sample correlation matrices
-# out_dir <- dirname(snakemake@output[[1]])
-
-# pearson_mat %>%
-#   as.data.frame() %>%
-#   rownames_to_column("sample") %>%
-#   write_tsv(file.path(out_dir, "pearson_cor_mat.tsv"))
-
-# spearman_mat %>%
-#   as.data.frame() %>%
-#   rownames_to_column("sample") %>%
-#   write_tsv(file.path(out_dir, "spearman_cor_mat.tsv"))

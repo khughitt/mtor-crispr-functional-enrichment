@@ -30,7 +30,7 @@ deseq2_res <- deseq2_res %>%
 deseq2_res <- deseq2_res %>%
   filter(!is.na(symbol))
 
-# GSEA (all genes)
+# GSEA
 gene_scores <- setNames(deseq2_res$log2FoldChange, deseq2_res$symbol)
 
 set.seed(cfg$random_seed)
@@ -46,29 +46,6 @@ gsea_res <- gsea_res@result %>%
 
 write_tsv(gsea_res, snakemake@output[[1]])
 
-# Gene set over-representation analysis (up- and down-regulated gene sets)
-up_reg <- deseq2_res %>%
-  filter(padj <= cfg$min_padj & log2FoldChange > 0) %>%
-  pull(symbol)
-
-down_reg <- deseq2_res %>%
-  filter(padj <= cfg$min_padj & log2FoldChange < 0) %>%
-  pull(symbol)
-
-up_reg_gene_sets <- enricher(up_reg, TERM2GENE = gene_sets)@result %>%
-  arrange(p.adjust)
-
-down_reg_gene_sets <- enricher(down_reg, TERM2GENE = gene_sets)@result %>%
-  arrange(p.adjust)
-
-write_tsv(up_reg_gene_sets, snakemake@output[[2]])
-write_tsv(down_reg_gene_sets, snakemake@output[[3]])
-
 # create a combined xlsx file with results
-tbls = list(
-  "GSEA" = gsea_res,
-  "over_rep_upreg" = up_reg_gene_sets,
-  "over_rep_downreg" = down_reg_gene_sets
-)
-
+tbls = list("GSEA" = gsea_res)
 write.xlsx(tbls, file = snakemake@output[[4]])
