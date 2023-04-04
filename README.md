@@ -9,7 +9,7 @@ _et al._, 2023)
 The code has been organized into several task-specific directories:
 
 1. RNA-Seq data preparation and transcript abundance estimation (`tx/data-prep`)
-2. RNA-Seq differential expression & functional enrichment analysis (`tx/deseq2`)
+2. RNA-Seq differential expression & functional enrichment analysis (`tx/downstream`)
 3. Phosphoproteomics functional enrichment analysis (`phospho/`)
 4. PubMed mTOR/Hippo gene co-occurrence analysis (`pubmed/`)
 5. Summary report (`summary/`)

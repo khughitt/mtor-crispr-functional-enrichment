@@ -10,14 +10,14 @@ output:
 ## Overview
 
 Here, gene set enrichment analysis (GSEA) is performed for each of the three mTOR
-complex knockouts, with genes weighted and ranked based on the ratio of average gene
-expression for the knockouts compared to controls.
+complex knockouts, for the set of phospho sites quantified which could be mapped back to
+protein-coding genes.
 
 This analysis was performed separately for nutrient-fed and starved samples, and was
 performed for both phosphoproteomics data (here) and RNA-Seq data (separate file.)
 
 To perform the actual gene set enrichment analysis, the `GSEA()` function from the
-[clusterProfiler](https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html) 
+[clusterProfiler](https://bioconductor.org/packages/release/bioc/html/clusterProfiler.html)
 Bioconductor package is used.
 
 `GSEA()` provides a helpful wrapper around [Fast Gene Set Enrichment Analysis
@@ -25,7 +25,7 @@ Bioconductor package is used.
 easy to visualize the results of enrichment analyses.
 
 All of the code used to perform this analysis, along with the resulting tables and
-figures depicting significantly enriched gene sets are shown in this [RMarkdown](https://rmarkdown.rstudio.com/) 
+figures depicting significantly enriched gene sets are shown in this [RMarkdown](https://rmarkdown.rstudio.com/)
 document.
 
 The full source .Rmd as well as the input datasets used to perform the analysis can be
@@ -39,8 +39,9 @@ the transcriptomic (RNA-Seq) and phosphoproteomic samples.
 With respect to the present analysis, a major different between the two data types,
 however, is the smaller number of genes for phospho abundance could be quantified.
 
-Whereas the transcriptomics dataset includes measurements for ~61,500 genes, the phospho
-dataset includes measurements for only ~3,200 genes.
+Whereas the transcriptomics dataset includes measurements for ~61,500 genes, the phospho datasets
+contain measurements for only ~1,450 proteins that can be reliably mapped to genes.
+
 This is due both to the different natures of the assays, as well as to the fact that the
 phosphoproteomic data is measured at the _protein_ level, and not all proteins are able
 to be mapped to gene symbols.
@@ -77,8 +78,18 @@ knitr::opts_chunk$set(
 # output directory?
 out_dir <- "output/"
 
+# path to uniprot id mapping file
+# https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/by_organism/
+# version used: 2023-03-01
+uniprot_mapping = "/data/ref/uniprot/2023_03/HUMAN_9606_idmapping.dat.gz"
+
 FGSEA_NPERM <- 10000
 MIN_PADJ <- 0.15
+```
+
+```{r load_uniprot_id_mapping}
+uniprot <- read_tsv(uniprot_mapping, col_names = c("uniprotkb", "id_type", "id")) %>%
+  filter(id_type == "Gene_Name")
 ```
 
 ```{r load_gene_sets}
@@ -90,242 +101,203 @@ gene_sets <- gene_sets %>%
   distinct()
 ```
 
+```{r phospho_helper_func}
+# helper function to prepare phospho data
+load_phospho_data <- function(path) {
+  dat <- read_tsv(path, show_col_types = FALSE) 
+
+  # add log2 abundance ratios, if missing
+  if (!"Abundance Ratio (log2): (Rap_del_1R) / (V_del_4R)" %in% colnames(dat)) {
+    dat$`Abundance Ratio (log2): (Rap_del_1R) / (V_del_4R)` = log2(dat$`Abundance Ratio: (Rap_del_1R) / (V_del_4R)`)
+    dat$`Abundance Ratio (log2): (Ric_del_SR) / (V_del_4R)` = log2(dat$`Abundance Ratio: (Ric_del_SR) / (V_del_4R)`)
+    dat$`Abundance Ratio (log2): (M7_del_SR) / (V_del_4R)` = log2(dat$`Abundance Ratio: (M7_del_SR) / (V_del_4R)`)
+  }
+
+  dat <- dat %>%
+    select(
+      modifications = Modifications,
+      master_protein_accessions = `Master Protein Accessions`,
+      rap_vs_control_log2ratio = `Abundance Ratio (log2): (Rap_del_1R) / (V_del_4R)`,
+      ric_vs_control_log2ratio = `Abundance Ratio (log2): (Ric_del_SR) / (V_del_4R)`,
+      m7_vs_control_log2ratio = `Abundance Ratio (log2): (M7_del_SR) / (V_del_4R)`
+    )
+
+  # exclude entries that doesn't relate to phosphorylation events
+  mask <- grepl("Phospho", dat$modifications)
+  dat <- dat[mask, ]
+
+  # exclude entries mapping to multiple proteins
+  mask <- !grepl(";", dat$master_protein_accessions)
+  dat <- dat[mask, ]
+
+  # exclude entries with ids not found in the UniprotKB mapping file
+  mask <- dat$master_protein_accessions %in% uniprot$uniprotkb
+  dat <- dat[mask, ]
+
+  # add gene symbol column
+  dat$symbol <- uniprot$id[match(dat$master_protein_accessions, uniprot$uniprotkb)]
+
+  # drop fields that are no longer needed and move symbols to front
+  dat <- dat %>%
+    select(symbol, rap_vs_control_log2ratio, ric_vs_control_log2ratio, m7_vs_control_log2ratio)
+
+  # drop entries with missing p-values
+  dat <- dat[complete.cases(dat), ]
+
+  # for genes associated with multiple sites, use the log2ratio with the largest magnitude
+  max_abs <- function(x) {
+    x[which.max(abs(x))]
+  }
+
+  dat <- dat %>%
+    group_by(symbol) %>%
+    summarize(across(everything(), max_abs))
+
+  dat
+}
+```
+
 ## Nutrient-fed
 
 ```{r load_nutri_data, message=FALSE}
-nutri <- read_csv('../data/phosphoproteomics_nutri.csv', show_col_types = FALSE)[, -1]
-nutri$symbol <- str_split(nutri$Phospho_Site, " ", simplify=TRUE)[, 1]
-
-# drop small number of entries with missing p-values
-# nutri <- nutri[complete.cases(nutri), ]
-
-# perform size factor normalization
-ind <- grepl("_[1-4]$", colnames(nutri))
-nutri[, ind] <- sweep(nutri[, ind], 2, colSums(nutri[, ind]), '/') * 1E6
+nutri <- load_phospho_data("../data/phospho-peptides-nutri.tsv")
 
 dim(nutri)
-
-# compute condition-specific totals
-nutri_rap <- nutri %>%
-  select(starts_with("Rap")) %>%
-  rowMeans()
-
-nutri_ric <- nutri %>%
-  select(starts_with("Ric")) %>%
-  rowMeans()
-
-nutri_m7 <- nutri %>%
-  select(starts_with("m7")) %>%
-  rowMeans()
-
-nutri_control <- nutri %>%
-  select(starts_with("control")) %>%
-  rowMeans()
-
-# compute knockout vs. control ratios;
-nutri$Ratio_Rap_v_Control <- (nutri_rap + 1) / (nutri_control + 1)
-nutri$Ratio_Ric_v_Control <- (nutri_ric + 1) / (nutri_control + 1)
-nutri$Ratio_m7_v_Control <- (nutri_m7 + 1) / (nutri_control + 1)
 ```
 
-```{r}
+```{r preview_nutri}
 # preview data
-nutri[1:5, 1:5]
+head(nutri)
 ```
 
-```{r create_gene_lists_nutri}
-# construct gene score vectors for GSEA analysis;
-# in cases where multiple phospho sites or proteins map to the same gene, keep the
-# ratio with the largest absolute deviance from "0"
+```{r nutri_fgsea, message = FALSE, warning = FALSE}
 mtorc1_nutri_genes <- nutri %>%
-  select(symbol, ratio = Ratio_Rap_v_Control) %>%
-  mutate(log2ratio = log2(ratio)) %>%
-  mutate(log2ratio_abs = abs(log2ratio)) %>%
-  group_by(symbol) %>%
-  arrange(-log2ratio_abs) %>%
-  slice(1) %>%
-  ungroup() %>%
-  select(symbol, log2ratio) %>%
-  arrange(-log2ratio) %>%
-  deframe()
+  select(symbol, rap_vs_control_log2ratio) %>%
+  deframe() %>%
+  sort(decreasing = TRUE)
 
 mtorc2_nutri_genes <- nutri %>%
-  select(symbol, ratio = Ratio_Ric_v_Control) %>%
-  mutate(log2ratio = log2(ratio)) %>%
-  mutate(log2ratio_abs = abs(log2ratio)) %>%
-  group_by(symbol) %>%
-  arrange(-log2ratio_abs) %>%
-  slice(1) %>%
-  ungroup() %>%
-  select(symbol, log2ratio) %>%
-  arrange(-log2ratio) %>%
-  deframe()
+  select(symbol, ric_vs_control_log2ratio) %>%
+  deframe() %>%
+  sort(decreasing = TRUE)
 
 mtorc3_nutri_genes <- nutri %>%
-  select(symbol, ratio = Ratio_m7_v_Control) %>%
-  mutate(log2ratio = log2(ratio)) %>%
-  mutate(log2ratio_abs = abs(log2ratio)) %>%
-  group_by(symbol) %>%
-  arrange(-log2ratio_abs) %>%
-  slice(1) %>%
-  ungroup() %>%
-  select(symbol, log2ratio) %>%
-  arrange(-log2ratio) %>%
-  deframe()
-```
+  select(symbol, m7_vs_control_log2ratio) %>%
+  deframe() %>%
+  sort(decreasing = TRUE)
 
-```{r}
-head(enframe(mtorc1_nutri_genes))
-head(enframe(mtorc2_nutri_genes))
-head(enframe(mtorc3_nutri_genes))
-```
+set.seed(1)
+mtorc1_nutri_res <- GSEA(mtorc1_nutri_genes, TERM2GENE = gene_sets, seed = TRUE,
+                         pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 
-```{r fgsea, message = FALSE, warning = FALSE}
-mtorc1_nutri_res <- GSEA(mtorc1_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
-mtorc2_nutri_res <- GSEA(mtorc2_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
-mtorc3_nutri_res <- GSEA(mtorc3_nutri_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+set.seed(1)
+mtorc2_nutri_res <- GSEA(mtorc2_nutri_genes, TERM2GENE = gene_sets, seed = TRUE,
+                         pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+
+set.seed(1)
+mtorc3_nutri_res <- GSEA(mtorc3_nutri_genes, TERM2GENE = gene_sets, seed = TRUE,
+                         pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
 ```{r mtorc1_results}
 mtorc1_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc1_nutri_res) +
-  ggplot2::xlim(0, 1.1)
+if (nrow(mtorc1_nutri_res@result) > 0) {
+  dotplot(mtorc1_nutri_res) +
+    ggplot2::xlim(0, 1.1)
+}
 ```
 
 ```{r mtorc2_nutri_results}
 mtorc2_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc2_nutri_res) +
-  ggplot2::xlim(0, 1.1)
+if (nrow(mtorc2_nutri_res@result) > 0) {
+  dotplot(mtorc2_nutri_res) +
+    ggplot2::xlim(0, 1.1)
+}
 ```
 
 ```{r mtorc3_nutri_results}
 mtorc3_nutri_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc3_nutri_res) +
-  ggplot2::xlim(0, 1.1)
+if (nrow(mtorc3_nutri_res@result) > 0) {
+  dotplot(mtorc3_nutri_res) +
+    ggplot2::xlim(0, 1.1)
+}
 ```
 
 ## Starved
 
 ```{r load_starved_data, message=FALSE}
-starved <- read_csv('data/phosphoproteomics_starved.csv', show_col_types = FALSE)[, -1]
-starved$symbol <- str_split(starved$Phospho_Site, " ", simplify=TRUE)[, 1]
-dim(starved)
-
-# size factor normalization
-ind <- grepl("_[1-4]$", colnames(starved))
-starved[, ind] <- sweep(starved[, ind], 2, colSums(starved[, ind]), '/') * 1E6
+starved <- load_phospho_data("../data/phospho-peptides-starved.tsv")
 
 dim(starved)
-
-# compute condition-specific totals
-starved_rap <- starved %>%
-  select(starts_with("Rap")) %>%
-  rowSums()
-
-starved_ric <- starved %>%
-  select(starts_with("Ric")) %>%
-  rowSums()
-
-starved_m7 <- starved %>%
-  select(starts_with("m7")) %>%
-  rowSums()
-
-starved_control <- starved %>%
-  select(starts_with("control")) %>%
-  rowSums()
-
-# compute knockout vs. control ratios
-starved$Ratio_Rap_v_Control <- (starved_rap + 1) / (starved_control + 1)
-starved$Ratio_Ric_v_Control <- (starved_ric + 1) / (starved_control + 1)
-starved$Ratio_m7_v_Control  <- (starved_m7 +1 ) / (starved_control + 1)
 ```
 
-```{r}
-# preview data
-starved[1:5, 1:5]
-```
-
-```{r create_gene_lists_starved}
-# construct gene score vectors for GSEA analysis;
-# in cases where multiple phospho sites or proteins map to the same gene, keep the
-# ratio with the largest absolute deviance from "0"
-mtorc1_starved_genes <- starved %>%
-  select(symbol, ratio = Ratio_Rap_v_Control) %>%
-  mutate(log2ratio = log2(ratio)) %>%
-  mutate(log2ratio_abs = abs(log2ratio)) %>%
-  group_by(symbol) %>%
-  arrange(-log2ratio_abs) %>%
-  slice(1) %>%
-  ungroup() %>%
-  select(symbol, log2ratio) %>%
-  arrange(-log2ratio) %>%
-  deframe()
-
-mtorc2_starved_genes <- starved %>%
-  select(symbol, ratio = Ratio_Ric_v_Control) %>%
-  mutate(log2ratio = log2(ratio)) %>%
-  mutate(log2ratio_abs = abs(log2ratio)) %>%
-  group_by(symbol) %>%
-  arrange(-log2ratio_abs) %>%
-  slice(1) %>%
-  ungroup() %>%
-  select(symbol, log2ratio) %>%
-  arrange(-log2ratio) %>%
-  deframe()
-
-mtorc3_starved_genes <- starved %>%
-  select(symbol, ratio = Ratio_m7_v_Control) %>%
-  mutate(log2ratio = log2(ratio)) %>%
-  mutate(log2ratio_abs = abs(log2ratio)) %>%
-  group_by(symbol) %>%
-  arrange(-log2ratio_abs) %>%
-  slice(1) %>%
-  ungroup() %>%
-  select(symbol, log2ratio) %>%
-  arrange(-log2ratio) %>%
-  deframe()
-```
-
-```{r}
-head(enframe(mtorc1_starved_genes))
-head(enframe(mtorc2_starved_genes))
-head(enframe(mtorc3_starved_genes))
+```{r preview_starved}
+head(starved)
 ```
 
 ```{r fgsea_starved, message = FALSE, warning = FALSE}
-mtorc1_starved_res <- GSEA(mtorc1_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
-mtorc2_starved_res <- GSEA(mtorc2_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
-mtorc3_starved_res <- GSEA(mtorc3_starved_genes, TERM2GENE = gene_sets, seed = 321, pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+mtorc1_starved_genes <- starved %>%
+  select(symbol, rap_vs_control_log2ratio) %>%
+  deframe() %>%
+  sort(decreasing = TRUE)
+
+mtorc2_starved_genes <- starved %>%
+  select(symbol, ric_vs_control_log2ratio) %>%
+  deframe() %>%
+  sort(decreasing = TRUE)
+
+mtorc3_starved_genes <- starved %>%
+  select(symbol, m7_vs_control_log2ratio) %>%
+  deframe() %>%
+  sort(decreasing = TRUE)
+
+set.seed(1)
+mtorc1_starved_res <- GSEA(mtorc1_starved_genes, TERM2GENE = gene_sets, seed = TRUE,
+                           pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+
+set.seed(1)
+mtorc2_starved_res <- GSEA(mtorc2_starved_genes, TERM2GENE = gene_sets, seed = TRUE,
+                           pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
+
+set.seed(1)
+mtorc3_starved_res <- GSEA(mtorc3_starved_genes, TERM2GENE = gene_sets, seed = TRUE,
+                           pvalueCutoff = MIN_PADJ, nPermSimple = FGSEA_NPERM)
 ```
 
 ```{r mtorc1_starved_results}
 mtorc1_starved_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc1_starved_res) +
-  ggplot2::xlim(0, 1.1)
+if (nrow(mtorc1_starved_res@result) > 0) {
+  dotplot(mtorc1_starved_res) +
+    ggplot2::xlim(0, 1.1)
+}
 ```
 
 ```{r mtorc2_starved_results}
 mtorc2_starved_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc2_starved_res) +
-  ggplot2::xlim(0, 1.1)
+if (nrow(mtorc2_starved_res@result) > 0) {
+  dotplot(mtorc2_starved_res) +
+    ggplot2::xlim(0, 1.1)
+}
 ```
 
 ```{r mtorc3_starved_results}
 mtorc3_starved_res@result %>%
   select(setSize, NES, pvalue, p.adjust)
 
-dotplot(mtorc3_starved_res) +
-  ggplot2::xlim(0, 1.1)
+if (nrow(mtorc3_starved_res@result) > 0) {
+  dotplot(mtorc3_starved_res) +
+    ggplot2::xlim(0, 1.1)
+}
 ```
 
 ## Save results
@@ -348,15 +320,26 @@ write_tsv(mtorc3_starved_res@result, file.path(out_dir, "phosphoproteomics-gsea-
 xlsx_outfile <- file.path(out_dir, "phosphoproteomics-gsea-results.xlsx")
 
 write.xlsx(mtorc1_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC1-nutri")
-write.xlsx(mtorc1_starved_res@result, file = xlsx_outfile, sheetName = "mTORC1-starved", append = TRUE)
-write.xlsx(mtorc2_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC2-nutri", append = TRUE)
-write.xlsx(mtorc2_starved_res@result, file = xlsx_outfile, sheetName = "mTORC2-starved", append = TRUE)
-write.xlsx(mtorc3_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC3-nutri", append = TRUE)
-write.xlsx(mtorc3_starved_res@result, file = xlsx_outfile, sheetName = "mTORC3-starved", append = TRUE)
+
+if (nrow(mtorc1_starved_res@result) > 0) {
+  write.xlsx(mtorc1_starved_res@result, file = xlsx_outfile, sheetName = "mTORC1-starved", append = TRUE)
+}
+if (nrow(mtorc2_nutri_res@result) > 0) {
+  write.xlsx(mtorc2_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC2-nutri", append = TRUE)
+}
+if (nrow(mtorc2_starved_res@result) > 0) {
+  write.xlsx(mtorc2_starved_res@result, file = xlsx_outfile, sheetName = "mTORC2-starved", append = TRUE)
+}
+if (nrow(mtorc3_nutri_res@result) > 0) {
+  write.xlsx(mtorc3_nutri_res@result, file = xlsx_outfile, sheetName = "mTORC3-nutri", append = TRUE)
+}
+if (nrow(mtorc3_starved_res@result) > 0) {
+  write.xlsx(mtorc3_starved_res@result, file = xlsx_outfile, sheetName = "mTORC3-starved", append = TRUE)
+}
 ```
 
 ## Session Info
 
-```{r}
+```{r session_info}
 sessionInfo()
 ```
