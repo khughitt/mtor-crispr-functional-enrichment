@@ -52,7 +52,7 @@ PHOSPHO_XLIMS <- list(-3, 3)
 PHOSPHO_YLIMS <- list(0, 14)
 
 # target? ["mtor"|"hippo"]
-PUBMED_TARGET = "hippo"
+PUBMED_TARGET = "mtor"
 
 if (PUBMED_TARGET == "mtor") {
   plt_suffix <- "mTOR"
@@ -886,8 +886,9 @@ number of genes co-mentioned alongside of mTOR/Hippo are recorded.
 This is then repeated multiple times, and the average of the result is plotted side-by-side with the
 actual observed literature co-occurrence counts.
 
-Although a number of permutations are performed to get a reasonable estimate of the average, this
-is still ultimately just meant as an imperfect qualitative assessment of possible enrichment.
+Although a number of permutations are performed in order to get a reasonable estimate of the
+average, this is still ultimately just intended as an imperfect qualitative assessment of possible
+enrichment.
 
 ```{r lit_permutation_enrichment}
 # list of inferred significant genes associated with each experiment
