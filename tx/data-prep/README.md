@@ -5,7 +5,7 @@
 This directory contains a Snakemake pipeline used to perform basic RNA-Seq read pre-processing and
 QA, and to generate transcript abundance estimates.
 
-The pipeline was designed to be used with the raw reads (.fastq) from Nguyen et al. (2022).
+The pipeline was designed to be used with the raw reads (.fastq) from Nguyen et al. (2023).
 
 Steps included:
 
@@ -19,13 +19,13 @@ Steps included:
 To run the pipeline, start by creating a conda environment with the necessary requirements:
 
 ```
-conda create -n nguyen22-rnaseq-prep --file requirements.txt
+conda create -n nguyen23-rnaseq-prep --file requirements.txt
 ```
 
 Activate the environment using:
 
 ```
-conda activate nguyen22-rnaseq-prep 
+conda activate nguyen23-rnaseq-prep 
 ```
 
 Next, copy the example config file located at "config/config.example.yml" to "config.yml", and

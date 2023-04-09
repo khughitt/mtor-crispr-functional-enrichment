@@ -51,7 +51,7 @@ knitr::opts_chunk$set(
 )
 
 if (opts_knit$get("rmarkdown.pandoc.to") == "latex") {
-  opts_chunk$set(dev = 'cairo_pdf', dev.args = list(cairo_pdf = list(family = 'Times New Roman')))
+  opts_chunk$set(dev = "cairo_pdf", dev.args = list(cairo_pdf = list(family = "Times New Roman")))
 }
 
 # volcano plot x & y axes limits
@@ -122,13 +122,6 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
 
   dat$group[dat$symbol %in% shared_123] <- "mTORC1-3"
 
-  # split dat into two groups to allow shared significant genes to be made more visible?
-  # dat1 <- dat %>%
-  #   filter(group %in% c(complex_name, "Not significant"))
-  #
-  # dat2 <- dat %>%
-  #   filter(!group %in% c(complex_name, "Not significant"))
-
   # interactive plot (plotly)
   if (opts_knit$get("rmarkdown.pandoc.to") == "html") {
     library(plotly)
@@ -157,16 +150,14 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
             y = ~log10pval,
             color = ~group,
             colors = pal,
-            type = 'scatter',
-            mode = 'markers',
+            type = "scatter",
+            mode = "markers",
             marker = list(size = 5),
             text = hover_text) %>%
       layout(xaxis = list(range = xlims), yaxis = list(range = ylims)) %>%
       layout(title = plot_title) %>%
       layout(shapes = list(vline(-1), vline(1))) %>%
-      add_trace(type = 'scatter', hovertemplate = "%{text}", showlegend = FALSE)
-      #add_trace(data = dat2, marker = list(size = 5), type = 'scatter',
-      #          hovertemplate = "%{text}", showlegend = FALSE)
+      add_trace(type = "scatter", hovertemplate = "%{text}", showlegend = FALSE)
 
   } else {
     # static plot (ggplot2)
@@ -186,14 +177,14 @@ plot_volcano <- function(dat, mtorc1_genes, mtorc2_genes, mtorc3_genes, target, 
 cfg <- yaml::read_yaml("config/config.yml")
 
 if (!dir.exists(cfg$output_dir)) {
-  dir.create(cfg$output_dir, recursive = TRUE, mode = '0755')
+  dir.create(cfg$output_dir, recursive = TRUE, mode = "0755")
 }
 ```
 
 ```{r load_uniprot_id_mapping}
 # load uniprot id mapping
-mapping <- read_tsv(cfg$uniprot_mapping, 
-                    col_names = c("uniprotkb_ac", "field", "value"), 
+mapping <- read_tsv(cfg$uniprot_mapping,
+                    col_names = c("uniprotkb_ac", "field", "value"),
                     show_col_types = FALSE)
 
 # limit to gene symbols and convert from long -> wide
@@ -223,46 +214,46 @@ deseq_starved <- list(
 )
 
 # compute average p-values across each pair of contrasts as well as the average for all three
-rap <- deseq_nutri[['rap']] %>%
-  select(ensgene, symbol, padj_rap=padj)
+rap <- deseq_nutri[["rap"]] %>%
+  select(ensgene, symbol, padj_rap = padj)
 
-ric <- deseq_nutri[['ric']] %>%
-  select(ensgene, padj_ric=padj)
+ric <- deseq_nutri[["ric"]] %>%
+  select(ensgene, padj_ric = padj)
 
-meak7 <- deseq_nutri[['meak7']] %>%
-  select(ensgene, padj_meak7=padj)
+meak7 <- deseq_nutri[["meak7"]] %>%
+  select(ensgene, padj_meak7 = padj)
 
 deseq_nutri[["combined"]] <- rap %>%
-  inner_join(ric, by='ensgene') %>%
-  inner_join(meak7, by='ensgene') %>%
+  inner_join(ric, by = "ensgene") %>%
+  inner_join(meak7, by = "ensgene") %>%
   na.omit() %>%
   mutate(
     padj_rap_ric = (padj_rap + padj_ric) / 2,
-    padj_rap_meak7= (padj_rap + padj_meak7) / 2,
-    padj_ric_meak7= (padj_ric + padj_meak7) / 2,
-    padj_all= (padj_rap + padj_ric + padj_meak7) / 3
+    padj_rap_meak7 = (padj_rap + padj_meak7) / 2,
+    padj_ric_meak7 = (padj_ric + padj_meak7) / 2,
+    padj_all = (padj_rap + padj_ric + padj_meak7) / 3
   ) %>%
   arrange(padj_all)
 
 # same thing, but for the starved data
-rap <- deseq_starved[['rap']] %>%
-  select(ensgene, symbol, padj_rap=padj)
+rap <- deseq_starved[["rap"]] %>%
+  select(ensgene, symbol, padj_rap = padj)
 
-ric <- deseq_starved[['ric']] %>%
-  select(ensgene, padj_ric=padj)
+ric <- deseq_starved[["ric"]] %>%
+  select(ensgene, padj_ric = padj)
 
-meak7 <- deseq_starved[['meak7']] %>%
-  select(ensgene, padj_meak7=padj)
+meak7 <- deseq_starved[["meak7"]] %>%
+  select(ensgene, padj_meak7 = padj)
 
 deseq_starved[["combined"]] <- rap %>%
-  inner_join(ric, by='ensgene') %>%
-  inner_join(meak7, by='ensgene') %>%
+  inner_join(ric, by = "ensgene") %>%
+  inner_join(meak7, by = "ensgene") %>%
   na.omit() %>%
   mutate(
     padj_rap_ric = (padj_rap + padj_ric) / 2,
-    padj_rap_meak7= (padj_rap + padj_meak7) / 2,
-    padj_ric_meak7= (padj_ric + padj_meak7) / 2,
-    padj_all= (padj_rap + padj_ric + padj_meak7) / 3
+    padj_rap_meak7 = (padj_rap + padj_meak7) / 2,
+    padj_ric_meak7 = (padj_ric + padj_meak7) / 2,
+    padj_all = (padj_rap + padj_ric + padj_meak7) / 3
   ) %>%
   arrange(padj_all)
 ```
@@ -494,7 +485,7 @@ mtorc3_phospho_nutri_genes <- phospho_nutri_meak7 %>%
 plot_volcano(phospho_nutri_rap,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "rap",
-             "ΔRPTOR Phosphoproteome Differential Abundance (nutrient-fed)", 
+             "ΔRPTOR Phosphoproteome Differential Abundance (nutrient-fed)",
              PHOSPHO_XLIMS, PHOSPHO_YLIMS,
              "phospho")
 ```
@@ -505,8 +496,8 @@ Are there genes which were found to be differentially expressed in the ΔRPTOR t
 which also appear to encode proteins that are differentially phosphorylated?
 
 ```{r tx_vs_phospho}
-phospho_nutri_rap$tx_pval <- deseq_nutri[['rap']]$pvalue[match(phospho_nutri_rap$symbol, deseq_nutri[['rap']]$symbol)]
-phospho_nutri_rap$tx_padj <- deseq_nutri[['rap']]$padj[match(phospho_nutri_rap$symbol, deseq_nutri[['rap']]$symbol)]
+phospho_nutri_rap$tx_pval <- deseq_nutri[["rap"]]$pvalue[match(phospho_nutri_rap$symbol, deseq_nutri[["rap"]]$symbol)]
+phospho_nutri_rap$tx_padj <- deseq_nutri[["rap"]]$padj[match(phospho_nutri_rap$symbol, deseq_nutri[["rap"]]$symbol)]
 
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
@@ -611,13 +602,12 @@ Are there genes which were found to be differentially expressed in the ΔRPTOR t
 which also appear to encode proteins that are differentially phosphorylated?
 
 ```{r tx_vs_phospho}
-phospho_starved_rap$tx_pval <- deseq_starved[['rap']]$pvalue[match(phospho_starved_rap$symbol, deseq_starved[['rap']]$symbol)]
-phospho_starved_rap$tx_padj <- deseq_starved[['rap']]$padj[match(phospho_starved_rap$symbol, deseq_starved[['rap']]$symbol)]
+phospho_starved_rap$tx_pval <- deseq_starved[["rap"]]$pvalue[match(phospho_starved_rap$symbol, deseq_starved[["rap"]]$symbol)]
+phospho_starved_rap$tx_padj <- deseq_starved[["rap"]]$padj[match(phospho_starved_rap$symbol, deseq_starved[["rap"]]$symbol)]
 
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
 # be compared
-# phospho_starved_rap$phospho_pval_rank <- rank(phospho_starved_rap$pval)
 phospho_starved_rap$phospho_pval_rank <- rank(phospho_starved_rap$padj)
 phospho_starved_rap$tx_pval_rank <- rank(phospho_starved_rap$tx_pval)
 
@@ -675,7 +665,7 @@ table(duplicated(phospho_nutri_ric_full$symbol))
 plot_volcano(phospho_nutri_ric,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "ric",
-             "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)", 
+             "ΔRICTOR Phosphoproteome Differential Abundance (nutrient-fed)",
              PHOSPHO_XLIMS, PHOSPHO_YLIMS,
              "phospho")
 ```
@@ -686,8 +676,8 @@ Are there genes which were found to be differentially expressed in the ΔRICTOR 
 which also appear to encode proteins that are differentially phosphorylated?
 
 ```{r tx_vs_phospho}
-phospho_nutri_ric$tx_pval <- deseq_nutri[['ric']]$pvalue[match(phospho_nutri_ric$symbol, deseq_nutri[['ric']]$symbol)]
-phospho_nutri_ric$tx_padj <- deseq_nutri[['ric']]$padj[match(phospho_nutri_ric$symbol, deseq_nutri[['ric']]$symbol)]
+phospho_nutri_ric$tx_pval <- deseq_nutri[["ric"]]$pvalue[match(phospho_nutri_ric$symbol, deseq_nutri[["ric"]]$symbol)]
+phospho_nutri_ric$tx_padj <- deseq_nutri[["ric"]]$padj[match(phospho_nutri_ric$symbol, deseq_nutri[["ric"]]$symbol)]
 
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
@@ -765,7 +755,7 @@ mtorc3_phospho_starved_genes <- phospho_starved_meak7 %>%
 plot_volcano(phospho_starved_ric,
              mtorc1_phospho_starved_genes, mtorc2_phospho_starved_genes, mtorc3_phospho_starved_genes,
              "ric",
-             "ΔRICTOR Phosphoproteome Differential Abundance (starved)", 
+             "ΔRICTOR Phosphoproteome Differential Abundance (starved)",
              PHOSPHO_XLIMS, PHOSPHO_YLIMS,
              "phospho")
 ```
@@ -776,13 +766,12 @@ Are there genes which were found to be differentially expressed in the ΔRICTOR 
 which also appear to encode proteins that are differentially phosphorylated?
 
 ```{r tx_vs_phospho}
-phospho_starved_ric$tx_pval <- deseq_starved[['ric']]$pvalue[match(phospho_starved_ric$symbol, deseq_starved[['ric']]$symbol)]
-phospho_starved_ric$tx_padj <- deseq_starved[['ric']]$padj[match(phospho_starved_ric$symbol, deseq_starved[['ric']]$symbol)]
+phospho_starved_ric$tx_pval <- deseq_starved[["ric"]]$pvalue[match(phospho_starved_ric$symbol, deseq_starved[["ric"]]$symbol)]
+phospho_starved_ric$tx_padj <- deseq_starved[["ric"]]$padj[match(phospho_starved_ric$symbol, deseq_starved[["ric"]]$symbol)]
 
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
 # be compared
-# phospho_starved_ric$phospho_pval_rank <- rank(phospho_starved_ric$pval)
 phospho_starved_ric$phospho_pval_rank <- rank(phospho_starved_ric$padj)
 phospho_starved_ric$tx_pval_rank <- rank(phospho_starved_ric$tx_pval)
 
@@ -840,7 +829,7 @@ table(duplicated(phospho_nutri_meak7_full$symbol))
 plot_volcano(phospho_nutri_meak7,
              mtorc1_phospho_nutri_genes, mtorc2_phospho_nutri_genes, mtorc3_phospho_nutri_genes,
              "meak7",
-             "ΔMEAK7 Phosphoproteome Differential Abundance (nutrient-fed)", 
+             "ΔMEAK7 Phosphoproteome Differential Abundance (nutrient-fed)",
              PHOSPHO_XLIMS, PHOSPHO_YLIMS,
              "phospho")
 ```
@@ -851,8 +840,8 @@ Are there genes which were found to be differentially expressed in the ΔMEAK7 t
 which also appear to encode proteins that are differentially phosphorylated?
 
 ```{r tx_vs_phospho}
-phospho_nutri_meak7$tx_pval <- deseq_nutri[['meak7']]$pvalue[match(phospho_nutri_meak7$symbol, deseq_nutri[['meak7']]$symbol)]
-phospho_nutri_meak7$tx_padj <- deseq_nutri[['meak7']]$padj[match(phospho_nutri_meak7$symbol, deseq_nutri[['meak7']]$symbol)]
+phospho_nutri_meak7$tx_pval <- deseq_nutri[["meak7"]]$pvalue[match(phospho_nutri_meak7$symbol, deseq_nutri[["meak7"]]$symbol)]
+phospho_nutri_meak7$tx_padj <- deseq_nutri[["meak7"]]$padj[match(phospho_nutri_meak7$symbol, deseq_nutri[["meak7"]]$symbol)]
 
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
@@ -914,7 +903,7 @@ table(duplicated(phospho_starved_meak7_full$symbol))
 plot_volcano(phospho_starved_meak7,
              mtorc1_phospho_starved_genes, mtorc2_phospho_starved_genes, mtorc3_phospho_starved_genes,
              "meak7",
-             "ΔMEAK7 Phosphoproteome Differential Abundance (starved)", 
+             "ΔMEAK7 Phosphoproteome Differential Abundance (starved)",
              PHOSPHO_XLIMS, PHOSPHO_YLIMS,
              "phospho")
 ```
@@ -925,13 +914,12 @@ Are there genes which were found to be differentially expressed in the ΔMEAK7 t
 which also appear to encode proteins that are differentially phosphorylated?
 
 ```{r tx_vs_phospho}
-phospho_starved_meak7$tx_pval <- deseq_starved[['meak7']]$pvalue[match(phospho_starved_meak7$symbol, deseq_starved[['meak7']]$symbol)]
-phospho_starved_meak7$tx_padj <- deseq_starved[['meak7']]$padj[match(phospho_starved_meak7$symbol, deseq_starved[['meak7']]$symbol)]
+phospho_starved_meak7$tx_pval <- deseq_starved[["meak7"]]$pvalue[match(phospho_starved_meak7$symbol, deseq_starved[["meak7"]]$symbol)]
+phospho_starved_meak7$tx_padj <- deseq_starved[["meak7"]]$padj[match(phospho_starved_meak7$symbol, deseq_starved[["meak7"]]$symbol)]
 
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
 # be compared
-# phospho_starved_meak7$phospho_pval_rank <- rank(phospho_starved_meak7$pval)
 phospho_starved_meak7$phospho_pval_rank <- rank(phospho_starved_meak7$padj)
 phospho_starved_meak7$tx_pval_rank <- rank(phospho_starved_meak7$tx_pval)
 
@@ -1038,7 +1026,7 @@ sessionInfo()
 
 Input data MD5 sums:
 
-```{r file_info, results='asis'}
+```{r file_info, results="asis"}
 input_files <- c(phospho_nutri_infile,
                  phospho_starved_infile,
                  cfg$uniprot_mapping,

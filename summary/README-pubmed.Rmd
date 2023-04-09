@@ -27,6 +27,7 @@ library(yaml)
 library(RColorBrewer)
 library(openxlsx)
 library(knitr)
+library(viridis)
 
 # be more precise when printing summary tables
 options(digits = 10)
@@ -51,7 +52,7 @@ PHOSPHO_XLIMS <- list(-3, 3)
 PHOSPHO_YLIMS <- list(0, 14)
 
 # target? ["mtor"|"hippo"]
-PUBMED_TARGET = "mtor"
+PUBMED_TARGET = "hippo"
 
 if (PUBMED_TARGET == "mtor") {
   plt_suffix <- "mTOR"
@@ -218,45 +219,45 @@ deseq_starved <- list(
 
 # compute average p-values across each pair of contrasts as well as the average for all three
 rap <- deseq_nutri[["rap"]] %>%
-  select(ensgene, symbol, padj_rap=padj)
+  select(ensgene, symbol, padj_rap = padj)
 
 ric <- deseq_nutri[["ric"]] %>%
-  select(ensgene, padj_ric=padj)
+  select(ensgene, padj_ric = padj)
 
 meak7 <- deseq_nutri[["meak7"]] %>%
-  select(ensgene, padj_meak7=padj)
+  select(ensgene, padj_meak7 = padj)
 
 deseq_nutri[["combined"]] <- rap %>%
-  inner_join(ric, by="ensgene") %>%
-  inner_join(meak7, by="ensgene") %>%
+  inner_join(ric, by = "ensgene") %>%
+  inner_join(meak7, by = "ensgene") %>%
   na.omit() %>%
   mutate(
     padj_rap_ric = (padj_rap + padj_ric) / 2,
-    padj_rap_meak7= (padj_rap + padj_meak7) / 2,
-    padj_ric_meak7= (padj_ric + padj_meak7) / 2,
-    padj_all= (padj_rap + padj_ric + padj_meak7) / 3
+    padj_rap_meak7 = (padj_rap + padj_meak7) / 2,
+    padj_ric_meak7 = (padj_ric + padj_meak7) / 2,
+    padj_all = (padj_rap + padj_ric + padj_meak7) / 3
   ) %>%
   arrange(padj_all)
 
 # same thing, but for the starved data
 rap <- deseq_starved[["rap"]] %>%
-  select(ensgene, symbol, padj_rap=padj)
+  select(ensgene, symbol, padj_rap = padj)
 
 ric <- deseq_starved[["ric"]] %>%
-  select(ensgene, padj_ric=padj)
+  select(ensgene, padj_ric = padj)
 
 meak7 <- deseq_starved[["meak7"]] %>%
-  select(ensgene, padj_meak7=padj)
+  select(ensgene, padj_meak7 = padj)
 
 deseq_starved[["combined"]] <- rap %>%
-  inner_join(ric, by="ensgene") %>%
-  inner_join(meak7, by="ensgene") %>%
+  inner_join(ric, by = "ensgene") %>%
+  inner_join(meak7, by = "ensgene") %>%
   na.omit() %>%
   mutate(
     padj_rap_ric = (padj_rap + padj_ric) / 2,
-    padj_rap_meak7= (padj_rap + padj_meak7) / 2,
-    padj_ric_meak7= (padj_ric + padj_meak7) / 2,
-    padj_all= (padj_rap + padj_ric + padj_meak7) / 3
+    padj_rap_meak7 = (padj_rap + padj_meak7) / 2,
+    padj_ric_meak7 = (padj_ric + padj_meak7) / 2,
+    padj_all = (padj_rap + padj_ric + padj_meak7) / 3
   ) %>%
   arrange(padj_all)
 ```
@@ -492,7 +493,6 @@ phospho_starved_rap$tx_padj <- deseq_starved[["rap"]]$padj[match(phospho_starved
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
 # be compared
-# phospho_starved_rap$phospho_pval_rank <- rank(phospho_starved_rap$pval)
 phospho_starved_rap$phospho_pval_rank <- rank(phospho_starved_rap$padj)
 phospho_starved_rap$tx_pval_rank <- rank(phospho_starved_rap$tx_pval)
 
@@ -608,7 +608,6 @@ phospho_starved_ric$tx_padj <- deseq_starved[["ric"]]$padj[match(phospho_starved
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
 # be compared
-# phospho_starved_ric$phospho_pval_rank <- rank(phospho_starved_ric$pval)
 phospho_starved_ric$phospho_pval_rank <- rank(phospho_starved_ric$padj)
 phospho_starved_ric$tx_pval_rank <- rank(phospho_starved_ric$tx_pval)
 
@@ -711,7 +710,6 @@ phospho_starved_meak7$tx_padj <- deseq_starved[["meak7"]]$padj[match(phospho_sta
 # since there are a large number of significant genes in the tx results, rather than simply looking
 # at the intersection of "significant" genes, gene p-value rankings between the tx/phospho data will
 # be compared
-# phospho_starved_meak7$phospho_pval_rank <- rank(phospho_starved_meak7$pval)
 phospho_starved_meak7$phospho_pval_rank <- rank(phospho_starved_meak7$padj)
 phospho_starved_meak7$tx_pval_rank <- rank(phospho_starved_meak7$tx_pval)
 
@@ -888,7 +886,7 @@ number of genes co-mentioned alongside of mTOR/Hippo are recorded.
 This is then repeated multiple times, and the average of the result is plotted side-by-side with the
 actual observed literature co-occurrence counts.
 
-Althought a number of permutations are performed to get a reasonable estimate of the average, this
+Although a number of permutations are performed to get a reasonable estimate of the average, this
 is still ultimately just meant as an imperfect qualitative assessment of possible enrichment.
 
 ```{r lit_permutation_enrichment}
