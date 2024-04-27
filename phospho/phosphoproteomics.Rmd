@@ -81,7 +81,7 @@ out_dir <- "output/"
 # path to uniprot id mapping file
 # https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/idmapping/by_organism/
 # version used: 2023-03-01
-uniprot_mapping = "/data/ref/uniprot/2023_03/HUMAN_9606_idmapping.dat.gz"
+uniprot_mapping <- "/data/ref/uniprot/2023_03/HUMAN_9606_idmapping.dat.gz"
 
 FGSEA_NPERM <- 10000
 MIN_PADJ <- 0.15
@@ -89,7 +89,8 @@ MIN_PADJ <- 0.15
 
 ```{r load_uniprot_id_mapping}
 uniprot <- read_tsv(uniprot_mapping, col_names = c("uniprotkb", "id_type", "id")) %>%
-  filter(id_type == "Gene_Name")
+  filter(id_type == "Gene_Name") %>%
+  select(-id_type)
 ```
 
 ```{r load_gene_sets}

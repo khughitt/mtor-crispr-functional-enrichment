@@ -14,7 +14,7 @@ output:
 
 # Overview
 
-Here, differential abundance and enrichment results are summarized for each of the mTOR complex
+Here, differential abundance results summarized for each of the mTOR complex
 knockouts, for both the transcriptome and phosphoproteome datasets.
 
 DESeq2 was used to assess differential expression at the transcriptome level, while Proteome
@@ -38,6 +38,7 @@ library(yaml)
 library(RColorBrewer)
 library(openxlsx)
 library(knitr)
+library(VennDiagram)
 
 # be more precise when printing summary tables
 options(digits = 10)
@@ -973,6 +974,219 @@ phospho_starved %>%
   kable(digits = 3)
 ```
 
+## Significant gene overlap Venn diagrams
+
+Below, Venn diagrams are created depicting the overlap in statistically significant genes from the
+differential expression/abundance tests for each of the experiments, considering up- and
+down-regulated genes separately.
+
+As a reminder, the phosphoproteomics experiments measured differences at the levels of phosphosites
+within proteins. Here, the "genes" referred to for the phosphoproteomics results are the inferred
+genes encoding those proteins.
+
+```{r venn_helper_func}
+# helper function to generate venn diagrams
+plot_venn <- function(rap, ric, m7, plot_title) {
+  # colors to use
+  venn_colors <- c("#E7EECE", "#EEC8A1", "#EDC8C6")
+  border_colors <- c("#C2D18D", "#CD9155", "#D07C78")
+
+  venn_labels <- sprintf(c("Rap KO(n=%d)", "m7 KO (n=%d)", "Ric KO (n=%d)"),
+                         c(length(rap), length(m7), length(ric)))
+
+  # plot venn diagram
+  # https://r-graph-gallery.com/14-venn-diagramm.html
+  plt <- venn.diagram(
+    x = list(rap, m7, ric),
+    category.names = venn_labels,
+    output = TRUE,
+    filename = NULL,
+
+    imagetype = "png",
+    height = 960,
+    width = 960,
+    resolution = 192,
+    compression = "lzw",
+
+    lwd = 1,
+    lty = "solid",
+    fill = venn_colors,
+    col = border_colors,
+    rotation = 1,
+
+    cex = .6,
+    fontface = "bold",
+    fontfamily = "sans",
+    print.mode = c("raw", "percent"),
+
+    cat.cex = 0.6,
+    cat.fontface = "bold",
+    cat.default.pos = "outer",
+    cat.pos = c(-27, 27, 135),
+    cat.dist = c(0.055, 0.055, 0.085),
+    cat.fontfamily = "sans",
+
+    main = plot_title
+  )
+
+  # display plot
+  grid::grid.draw(plt)
+}
+```
+
+```{r venn_gene_sets}
+# get lists of significant genes for each experiment, separated by up-/down-regulation
+tx_starved_rap_up <- deseq_starved$rap %>%
+  filter(padj < 0.01 & log2FoldChange > 0) %>%
+  pull(ensgene)
+
+tx_starved_ric_up <- deseq_starved$ric %>%
+  filter(padj < 0.01 & log2FoldChange > 0) %>%
+  pull(ensgene)
+
+tx_starved_m7_up <- deseq_starved$meak7 %>%
+  filter(padj < 0.01 & log2FoldChange > 0) %>%
+  pull(ensgene)
+
+tx_starved_rap_down <- deseq_starved$rap %>%
+  filter(padj < 0.01 & log2FoldChange < 0) %>%
+  pull(ensgene)
+
+tx_starved_ric_down <- deseq_starved$ric %>%
+  filter(padj < 0.01 & log2FoldChange < 0) %>%
+  pull(ensgene)
+
+tx_starved_m7_down <- deseq_starved$meak7 %>%
+  filter(padj < 0.01 & log2FoldChange < 0) %>%
+  pull(ensgene)
+
+tx_nutri_rap_up <- deseq_nutri$rap %>%
+  filter(padj < 0.01 & log2FoldChange > 0) %>%
+  pull(ensgene)
+
+tx_nutri_ric_up <- deseq_nutri$ric %>%
+  filter(padj < 0.01 & log2FoldChange > 0) %>%
+  pull(ensgene)
+
+tx_nutri_m7_up <- deseq_nutri$meak7 %>%
+  filter(padj < 0.01 & log2FoldChange > 0) %>%
+  pull(ensgene)
+
+tx_nutri_rap_down <- deseq_nutri$rap %>%
+  filter(padj < 0.01 & log2FoldChange < 0) %>%
+  pull(ensgene)
+
+tx_nutri_ric_down <- deseq_nutri$ric %>%
+  filter(padj < 0.01 & log2FoldChange < 0) %>%
+  pull(ensgene)
+
+tx_nutri_m7_down <- deseq_nutri$meak7 %>%
+  filter(padj < 0.01 & log2FoldChange < 0) %>%
+  pull(ensgene)
+
+# phospho results; here, a less stringent p-value cutoff is used to account for the lower
+# statistical power of the data compared with the transcriptomics datasets
+phospho_starved_rap_up <- phospho_starved %>%
+  filter(rap_padj < 0.05 & rap_log2ratio > 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_starved_ric_up <- phospho_starved %>%
+  filter(ric_padj < 0.05 & ric_log2ratio > 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_starved_meak7_up <- phospho_starved %>%
+  filter(meak7_padj < 0.05 & meak7_log2ratio > 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_starved_rap_down <- phospho_starved %>%
+  filter(rap_padj < 0.05 & rap_log2ratio < 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_starved_ric_down <- phospho_starved %>%
+  filter(ric_padj < 0.05 & ric_log2ratio < 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_starved_meak7_down <- phospho_starved %>%
+  filter(meak7_padj < 0.05 & meak7_log2ratio < 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_nutri_rap_up <- phospho_nutri %>%
+  filter(rap_padj < 0.05 & rap_log2ratio > 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_nutri_ric_up <- phospho_nutri %>%
+  filter(ric_padj < 0.05 & ric_log2ratio > 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_nutri_meak7_up <- phospho_nutri %>%
+  filter(meak7_padj < 0.05 & meak7_log2ratio > 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_nutri_rap_down <- phospho_nutri %>%
+  filter(rap_padj < 0.05 & rap_log2ratio < 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_nutri_ric_down <- phospho_nutri %>%
+  filter(ric_padj < 0.05 & ric_log2ratio < 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+
+phospho_nutri_meak7_down <- phospho_nutri %>%
+  filter(meak7_padj < 0.05 & meak7_log2ratio < 0) %>%
+  drop_na(symbol) %>%
+  pull(symbol)
+```
+
+```{r tx_starved_down_venn, fig.height = 6}
+plot_venn(tx_starved_rap_down, tx_starved_ric_down, tx_starved_m7_down,
+          "Transcriptomics (starved / down-regulated)")
+```
+
+```{r tx_starved_up_venn, fig.height = 6}
+plot_venn(tx_starved_rap_up, tx_starved_ric_up, tx_starved_m7_up,
+          "Transcriptomics (starved / up-regulated)")
+```
+
+```{r tx_nutri_down_venn, fig.height = 6}
+plot_venn(tx_nutri_rap_down, tx_nutri_ric_down, tx_nutri_m7_down,
+          "Transcriptomics (nutrient-fed / down-regulated)")
+```
+
+```{r tx_nutri_up_venn, fig.height = 6}
+plot_venn(tx_nutri_rap_up, tx_nutri_ric_up, tx_nutri_m7_up,
+          "Transcriptomics (nutrient-fed / up-regulated)")
+```
+
+```{r phospho_starved_down_venn, fig.height = 6}
+plot_venn(phospho_starved_rap_down, phospho_starved_ric_down, phospho_starved_meak7_down,
+          "Phosphoproteomics (starved / down-regulated)")
+```
+
+```{r phospho_starved_up_venn, fig.height = 6}
+plot_venn(phospho_starved_rap_up, phospho_starved_ric_up, phospho_starved_meak7_up,
+          "Phosphoproteomics (starved / up-regulated)")
+```
+
+```{r phospho_nutri_down_venn, fig.height = 6}
+plot_venn(phospho_nutri_rap_down, phospho_nutri_ric_down, phospho_nutri_meak7_down,
+          "Phosphoproteomics (nutrient-fed / down-regulated)")
+```
+
+```{r phospho_nutri_up_venn, fig.height = 6}
+plot_venn(phospho_nutri_rap_up, phospho_nutri_ric_up, phospho_nutri_meak7_up,
+          "Phosphoproteomics (nutrient-fed / up-regulated)")
+```
+
 ## Save Results
 
 ```{r write_output}
@@ -1016,6 +1230,66 @@ deseq_tbls = list(
 
 tx_outfile <- file.path(cfg$output_dir, "deseq2_results.xlsx")
 write.xlsx(deseq_tbls, file = tx_outfile)
+```
+
+```{r bev_phospho_nutri_unique_sig}
+# answering a request from Bev to provide lists of the unique phospho/nutri genes associated with
+# each complex (grouping up- and down-regulated genes together)
+rap_sig <- sort(unique(c(phospho_nutri_rap_up, phospho_nutri_rap_down)))
+ric_sig <- sort(unique(c(phospho_nutri_ric_up, phospho_nutri_ric_down)))
+meak7_sig <- sort(unique(c(phospho_nutri_meak7_up, phospho_nutri_meak7_down)))
+
+rap_unique <- rap_sig[!rap_sig %in% c(ric_sig, meak7_sig)]
+ric_unique <- ric_sig[!ric_sig %in% c(rap_sig, meak7_sig)]
+meak7_unique <- meak7_sig[!meak7_sig %in% c(rap_sig, ric_sig)]
+
+df1 <- phospho_nutri_rap %>%
+  filter(symbol %in% rap_unique) %>%
+  select(symbol, log2ratio, pval, padj) %>%
+  arrange(padj)
+
+df2 <- phospho_nutri_ric %>%
+  filter(symbol %in% ric_unique) %>%
+  select(symbol, log2ratio, pval, padj) %>%
+  arrange(padj)
+
+df3 <- phospho_nutri_meak7 %>%
+  filter(symbol %in% meak7_unique) %>%
+  select(symbol, log2ratio, pval, padj) %>%
+  arrange(padj)
+
+write_tsv(df1, "~/rap_unique_phospho.tsv")
+write_tsv(df2, "~/ric_unique_phospho.tsv")
+write_tsv(df3, "~/meak7_unique_phospho.tsv")
+```
+
+```{r bev_tx_nutri_unique_sig}
+rap_sig <- sort(unique(c(tx_nutri_rap_up, tx_nutri_rap_down)))
+ric_sig <- sort(unique(c(tx_nutri_ric_up, tx_nutri_ric_down)))
+meak7_sig <- sort(unique(c(tx_nutri_m7_up, tx_nutri_m7_down)))
+
+rap_unique <- rap_sig[!rap_sig %in% c(ric_sig, meak7_sig)]
+ric_unique <- ric_sig[!ric_sig %in% c(rap_sig, meak7_sig)]
+meak7_unique <- meak7_sig[!meak7_sig %in% c(rap_sig, ric_sig)]
+
+df1 <- deseq_nutri[["rap"]] %>%
+  filter(ensgene %in% rap_unique) %>%
+  select(symbol, log2FoldChange, pvalue, padj) %>%
+  arrange(padj)
+
+df2 <- deseq_nutri[["ric"]] %>%
+  filter(ensgene %in% ric_unique) %>%
+  select(symbol, log2FoldChange, pvalue, padj) %>%
+  arrange(padj)
+
+df3 <- deseq_nutri[["meak7"]] %>%
+  filter(ensgene %in% meak7_unique) %>%
+  select(symbol, log2FoldChange, pvalue, padj) %>%
+  arrange(padj)
+
+write_tsv(df1, "~/rap_unique_tx.tsv")
+write_tsv(df2, "~/ric_unique_tx.tsv")
+write_tsv(df3, "~/meak7_unique_tx.tsv")
 ```
 
 # Session Info
